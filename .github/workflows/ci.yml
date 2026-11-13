@@ -24,7 +24,7 @@ jobs:
           - os: macos-latest
             extra: mac
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    timeout-minutes: 30
     env:
       PYTHONUTF8: "1"
     steps:
