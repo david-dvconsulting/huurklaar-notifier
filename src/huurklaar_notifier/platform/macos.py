@@ -38,7 +38,7 @@ from ..core.menu import (
     build_menu,
     title_for,
 )
-from ..core.poller import Poller
+from ..core.poller import Poller, UpdatePoller
 from ..core.state import Toast
 from .keyring_store import KeyringSecretStore
 
@@ -178,10 +178,13 @@ class MenubarApp(rumps.App):
         self._results: queue.Queue[list[Toast]] = queue.Queue()
         self._rebuild_needed = True
         self._poller = Poller(controller, self._results.put)
+        # Een gevonden update tekent het menu opnieuw (een lege lijst = geen meldingen, wel herbouwen).
+        self._updates = UpdatePoller(controller, lambda: self._results.put([]))
         self._timer = rumps.Timer(self._tick, 1)
 
     def run(self, **kwargs) -> None:  # type: ignore[override]
         self._poller.start()
+        self._updates.start()
         self._timer.start()
         super().run(**kwargs)
 
@@ -200,7 +203,11 @@ class MenubarApp(rumps.App):
 
     def _render(self) -> None:
         entries = build_menu(
-            self.c.state, self.c.language, self.c.config.language, self.c.platform.autostart.is_enabled()
+            self.c.state,
+            self.c.language,
+            self.c.config.language,
+            self.c.platform.autostart.is_enabled(),
+            self.c.update,
         )
         self.title = title_for(self.c.state)
         self.menu.clear()
@@ -242,6 +249,7 @@ class MenubarApp(rumps.App):
                 self._rebuild_needed = True
             elif e.action == QUIT:
                 self._poller.stop()
+                self._updates.stop()
                 rumps.quit_application()
 
         return run

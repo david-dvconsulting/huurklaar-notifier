@@ -9,6 +9,7 @@ from .api import is_openable
 from .i18n import LANGUAGES, translate
 from .state import State, Status
 from .state import app_url as _app_url
+from .updates import Release
 
 MAX_MENU_ITEMS = 10
 MAX_LABEL = 70
@@ -54,9 +55,13 @@ def status_line(state: State, lang: str) -> str:
     return translate(lang, f"status.{state.status.value}")
 
 
-def build_menu(state: State, lang: str, language_setting: str, autostart: bool) -> list[Entry]:
+def build_menu(
+    state: State, lang: str, language_setting: str, autostart: bool, update: Release | None = None
+) -> list[Entry]:
     t = lambda key, **p: translate(lang, key, **p)  # noqa: E731
     entries: list[Entry] = [Entry(status_line(state, lang), enabled=False)]
+    if update is not None:  # de klik opent de releasepagina; automatisch vervangen is een latere stap
+        entries.append(Entry(t("menu.update", version=update.version), url=update.url))
     if state.status is Status.OFFLINE and state.updated_at:
         entries.append(Entry(t("status.updated", time=state.updated_at), enabled=False))
 

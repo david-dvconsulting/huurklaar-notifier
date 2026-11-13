@@ -7,11 +7,13 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from .. import __version__
 from ..platform.base import Platform
 from .api import ApiClient, validate_base_url, validate_key
 from .config import Config, ConfigStore
 from .i18n import resolve_language
 from .state import State, Toast
+from .updates import DAY, Release, UpdateCheckError, fetch_latest_release, newer_than_current, release_url
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,6 +27,8 @@ class Controller:
         platform: Platform,
         client_factory: Callable[[str, str], ApiClient] = ApiClient,
         clock: Callable[[], float] = time.time,
+        update_fetch: Callable[[], Release | None] = fetch_latest_release,
+        current_version: str = __version__,
     ) -> None:
         self.platform = platform
         self.store = ConfigStore(platform.data_dir())
@@ -34,6 +38,8 @@ class Controller:
         self._clock = clock
         self._lock = threading.Lock()  # poll-thread en UI-thread raken dezelfde toestand
         self.wake = threading.Event()  # 'nu vernieuwen' of nieuwe instellingen
+        self._update_fetch = update_fetch
+        self._current_version = current_version
 
     # -- taal --------------------------------------------------------------
     @property
@@ -81,3 +87,42 @@ class Controller:
             return self._client_factory(self.config.base_url, key) if key else None
         except Exception:  # Keychain geweigerd of ongeldig adres: behandel als 'niet aangemeld'
             return None
+
+    # -- updatecheck (KAN-121) -----------------------------------------------------
+    @property
+    def update(self) -> Release | None:
+        """De nieuwere versie die we kennen, of `None`. Leest enkel de bewaarde waarde: nooit netwerk."""
+        with self._lock:
+            version = self.config.update_version
+        if not version:
+            return None
+        return newer_than_current(Release(version, release_url(version)), self._current_version)
+
+    def update_due_in(self) -> float:
+        """Seconden tot de volgende updatecheck (0 of minder = nu)."""
+        with self._lock:
+            return self.config.update_next_check - self._clock()
+
+    def check_for_update(self) -> bool:
+        """Doet de updatecheck als die aan de beurt is. Geeft waar als de gevonden versie veranderd is.
+
+        Mislukken is stil: bij elke fout onthouden we enkel wanneer we opnieuw proberen.
+        """
+        if self.update_due_in() > 0:
+            return False
+        retry_after = DAY
+        found: str | None = None
+        try:
+            release = newer_than_current(self._update_fetch(), self._current_version)
+            found = release.version if release else ""
+        except UpdateCheckError as e:
+            retry_after = e.retry_after
+        except Exception:  # een updatecheck mag de app nooit hinderen
+            retry_after = 3600.0
+        with self._lock:
+            before = self.config.update_version
+            if found is not None:
+                self.config.update_version = found
+            self.config.update_next_check = self._clock() + retry_after
+            self.store.save(self.config)
+            return self.config.update_version != before
