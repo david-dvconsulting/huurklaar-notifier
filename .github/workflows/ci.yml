@@ -1,0 +1,46 @@
+# CI op elke push en pull request: lint, tests en self-test op Windows én macOS (zonder installers te bouwen).
+# De volledige build met .exe en setup.exe staat in windows-build.yml (bouwsteen; release is KAN-121).
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            extra: windows
+          - os: macos-latest
+            extra: mac
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Installeren
+        run: python -m pip install -e ".[${{ matrix.extra }},dev]"
+      - name: Lint
+        run: |
+          python -m ruff check .
+          python -m ruff format --check .
+      - name: Tests
+        run: python -m pytest -q
+      # Op Windows doet dit ook de controles voor Credential Manager, register en bibliotheken.
+      - name: Self-test
+        timeout-minutes: 3
+        run: python -m huurklaar_notifier --selftest
