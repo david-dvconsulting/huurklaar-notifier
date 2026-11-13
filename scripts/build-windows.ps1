@@ -68,5 +68,9 @@ $iscc = @(
   "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
 ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
 if (-not $iscc) { throw "Inno Setup 6 niet gevonden. Installeer het (gratis) of gebruik -SkipInstaller." }
-Run "installer maken (Inno Setup)" { & $iscc "/DAppVersion=$Version" "installer\huurklaar-meldingen.iss" }
+# Een voorlooptekst zoals 0.0.1-rc.1 mag niet in VersionInfoVersion: neem de eerste vier getallen.
+$parts = @([regex]::Matches(($Version -split "-")[0], "\d+") | ForEach-Object { $_.Value })
+while ($parts.Count -lt 4) { $parts += "0" }
+$numeric = ($parts | Select-Object -First 4) -join "."
+Run "installer maken (Inno Setup)" { & $iscc "/DAppVersion=$Version" "/DAppVersionNumeric=$numeric" "installer\huurklaar-meldingen.iss" }
 Write-Host "Klaar: dist\Huurklaar-Meldingen.exe en dist\Huurklaar-Meldingen-Setup-$Version.exe"
