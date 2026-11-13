@@ -19,6 +19,8 @@ python3 -m venv .venv && .venv/bin/pip install -e ".[mac,dev]"
 scripts/build-mac.sh        # .app + .dmg in dist/ (ad hoc ondertekend)
 ```
 
+Een release maken, de versieconventie, de proefrun en de updatecheck: zie [docs/bouwen-en-releasen.md](docs/bouwen-en-releasen.md).
+
 ## Indeling
 
 - `core/`: API-client, toestanden en back-off, menu-model, vertalingen (nl/fr/en), controller en poller. Importeert geen GUI.
