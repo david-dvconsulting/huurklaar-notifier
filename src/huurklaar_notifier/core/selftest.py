@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import tempfile
 from pathlib import Path
 
@@ -13,7 +14,7 @@ from .menu import build_menu
 from .state import Status
 
 
-def run() -> int:
+def run(output: str | None = None) -> int:
     problems: list[str] = []
 
     def check(ok: bool, what: str) -> None:
@@ -42,7 +43,16 @@ def run() -> int:
         c.poll()
         check(c.state.status is Status.AUTH_FAILED and c.next_delay() is None, "ongeldige sleutel")
 
-    for p in problems:
-        print("MISLUKT:", p)
-    print("selftest: OK" if not problems else f"selftest: {len(problems)} probleem(en)")
+    if sys.platform == "win32":
+        from ..platform import windows_selftest
+
+        windows_selftest.run(check)
+
+    lines = [f"MISLUKT: {p}" for p in problems]
+    lines.append("selftest: OK" if not problems else f"selftest: {len(problems)} probleem(en)")
+    # Een --noconsole-exe heeft geen stdout: print() doet dan niets, dus ook naar een bestand schrijven.
+    if sys.stdout is not None:
+        print("\n".join(lines))
+    if output:
+        Path(output).write_text("\n".join(lines) + "\n", encoding="utf-8")
     return 1 if problems else 0

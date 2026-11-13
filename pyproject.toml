@@ -14,7 +14,12 @@ mac = [
   "pyobjc-framework-UserNotifications>=10",
   "pyobjc-framework-Cocoa>=10",
 ]
-dev = ["pytest>=8", "ruff>=0.6", "pyinstaller>=6"]
+windows = [
+  "pystray>=0.19.5",
+  "pillow>=10.1",
+  "win11toast>=0.36",
+]
+dev = ["pytest>=8", "ruff>=0.6", "pyinstaller>=6", "pillow>=10.1"]
 
 [project.scripts]
 huurklaar-notifier = "huurklaar_notifier.__main__:main"
