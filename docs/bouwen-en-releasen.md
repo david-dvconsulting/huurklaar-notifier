@@ -13,7 +13,7 @@ Voor wie lokaal wil bouwen of een nieuwe versie wil uitbrengen. Alles is gratis:
 ## Een release maken
 
 1. Zorg dat `main` groen is en alles bevat wat erin moet.
-2. Start in IntelliJ de run-config **Release maken (tag op main)** (`scripts/release.sh`). Het script controleert dat je op een schone, bijgewerkte `main` staat, stelt het volgende versienummer voor, vraagt bevestiging en pusht de tag. Met de hand kan ook (dit start de workflow `Release`):
+2. Start in IntelliJ de run-config **Release maken (tag op main)** (`scripts/release.sh`). Het script controleert dat je op een schone, bijgewerkte `main` staat, vraagt eerst of het een minor of major is (geen antwoord binnen 10 s = patch), toont de nieuwe versie, vraagt bevestiging en pusht de tag. Een eigen versie of voorversie kan met `scripts/release.sh v1.2.0-rc.1`. Met de hand kan ook (dit start de workflow `Release`):
 
    ```bash
    git checkout main && git pull
