@@ -38,23 +38,25 @@ Run "icoon maken" { python scripts/make-icons-windows.py }
 Run "versiebestand maken" { python scripts/make-version-file.py $Version build/version.txt }
 
 Remove-Item -Recurse -Force dist -ErrorAction SilentlyContinue
+# Absolute paden: PyInstaller leest relatieve paden vanaf --specpath (build\), niet vanaf de repo.
+$root = (Get-Location).Path
 $common = @(
   "--noconfirm", "--noconsole", "--noupx", "--specpath", "build",
-  "--icon", "assets/AppIcon.ico", "--version-file", "build/version.txt",
-  "--add-data", "assets/AppIcon.ico;assets", "--paths", "src",
+  "--icon", "$root\assets\AppIcon.ico", "--version-file", "$root\build\version.txt",
+  "--add-data", "$root\assets\AppIcon.ico;assets", "--paths", "$root\src",
   "--hidden-import", "pystray._win32", "--collect-submodules", "winrt",
   "--collect-submodules", "keyring.backends", "--collect-submodules", "win32ctypes"
 )
 # Zonder UPX en met versiegegevens: minder kans op een valse virusmelding.
 Run "bouwen: één .exe" {
-  python -m PyInstaller @common --onefile --name "Huurklaar-Meldingen" --workpath build/onefile scripts/entry.py
+  python -m PyInstaller @common --onefile --name "Huurklaar-Meldingen" --workpath build/onefile "$root\scripts\entry.py"
 }
 Selftest-Exe (Resolve-Path "dist/Huurklaar-Meldingen.exe")
 
 # De installer gebruikt een map (onedir): start sneller (niets uitpakken naar %TEMP% bij elke start) en
 # loopt minder tegen virusscanners aan dan een zelfuitpakkend bestand.
 Run "bouwen: map voor de installer" {
-  python -m PyInstaller @common --onedir --name "Huurklaar Meldingen" --workpath build/onedir scripts/entry.py
+  python -m PyInstaller @common --onedir --name "Huurklaar Meldingen" --workpath build/onedir "$root\scripts\entry.py"
 }
 Selftest-Exe (Resolve-Path "dist/Huurklaar Meldingen/Huurklaar Meldingen.exe")
 
