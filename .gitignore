@@ -9,3 +9,4 @@ dist/
 # Nooit een echte sleutel in een publieke repo
 *.key
 .env*
+*.spec
