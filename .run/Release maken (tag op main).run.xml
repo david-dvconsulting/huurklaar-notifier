@@ -1,6 +1,6 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="Release maken (tag op main)" type="ShConfigurationType">
-    <option name="SCRIPT_TEXT" value="printf &quot;Minor? (j/N, na 10 s: N): &quot;; read -t 10 -r a; [[ $a == [jJyY]* ]] &amp;&amp; f=--minor; printf &quot;\nMajor? (j/N, na 10 s: N): &quot;; read -t 10 -r b; [[ $b == [jJyY]* ]] &amp;&amp; f=--major; echo; scripts/release.sh $f" />
+    <option name="SCRIPT_TEXT" value="scripts/release.sh --ask" />
     <option name="INDEPENDENT_SCRIPT_PATH" value="true" />
     <option name="SCRIPT_PATH" value="" />
     <option name="SCRIPT_OPTIONS" value="" />
