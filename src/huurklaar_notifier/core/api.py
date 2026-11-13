@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 
 from .. import __version__
 from .models import ProtocolError, Snapshot, parse_snapshot
+from .tls import ssl_context
 
 KEY_PREFIX = "hkn_"
 _LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
@@ -67,7 +68,9 @@ class ApiClient:
         self._url = f"{validate_base_url(base_url)}/me/notifications"
         self._key = validate_key(key)
         self._timeout = timeout
-        self._opener = urllib.request.build_opener(_NoRedirect)
+        self._opener = urllib.request.build_opener(
+            _NoRedirect, urllib.request.HTTPSHandler(context=ssl_context())
+        )
 
     def fetch(self) -> Snapshot:
         req = urllib.request.Request(

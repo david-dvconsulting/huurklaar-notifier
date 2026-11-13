@@ -15,7 +15,7 @@ rm -rf build dist
   --osx-bundle-identifier "$BUNDLE_ID" \
   --icon assets/AppIcon.icns \
   --add-data "assets:assets" \
-  --collect-submodules keyring.backends \
+  --collect-submodules keyring.backends --collect-data certifi \
   --hidden-import objc --hidden-import UserNotifications --hidden-import AppKit --hidden-import Foundation \
   --paths src \
   scripts/entry.py >/dev/null
