@@ -3,6 +3,10 @@
 #ifndef AppVersion
   #define AppVersion "0.0.0"
 #endif
+; VersionInfoVersion wil vier getallen (1.2.3.0); AppVersion mag tekst zijn, zoals 0.0.1-rc.1.
+#ifndef AppVersionNumeric
+  #define AppVersionNumeric "0.0.0.0"
+#endif
 #define AppName "Huurklaar Meldingen"
 #define AppExe "Huurklaar Meldingen.exe"
 
@@ -21,7 +25,7 @@ OutputDir=..\dist
 OutputBaseFilename=Huurklaar-Meldingen-Setup-{#AppVersion}
 SetupIconFile=..\assets\AppIcon.ico
 UninstallDisplayIcon={app}\{#AppExe}
-VersionInfoVersion={#AppVersion}
+VersionInfoVersion={#AppVersionNumeric}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
