@@ -40,8 +40,8 @@ De release bevat bestanden met een vaste naam, zonder versie, zodat `https://git
 | Bestand | Wat |
 |---|---|
 | `Huurklaar-Meldingen.dmg` | Mac (ad hoc ondertekend) |
-| `Huurklaar-Meldingen-Setup.exe` | Windows-installer (Inno Setup) |
-| `Huurklaar-Meldingen.exe` | Windows, losse app zonder installatie |
+| `Huurklaar-Meldingen-Setup.exe` | Windows-installer (Inno Setup): Start-menu, 'start bij aanmelden', nette verwijdering. Aanbevolen. |
+| `Huurklaar-Meldingen.exe` | Windows, één los bestand, zonder installatie (proberen of op een pc waar je niets mag installeren) |
 | `SHA256SUMS.txt` | controlesommen van de bestanden hierboven |
 
 De releasepagina zelf is `https://github.com/david-dvconsulting/huurklaar-notifier/releases/latest`.
@@ -60,7 +60,7 @@ scripts/build-mac.sh                            # .app en .dmg in dist/
 
 `scripts/build-mac.sh` accepteert een versie als argument (`scripts/build-mac.sh 1.2.0`); zonder argument gebruikt het `_version.py`. Wil je lokaal een versie testen zoals de CI, voer dan eerst `python3 scripts/set-version.py v1.2.0` uit en zet daarna `_version.py` terug met `git checkout src/huurklaar_notifier/_version.py`.
 
-De Windows-bouwstap staat in `scripts/build-windows.ps1` (KAN-120). Zolang dat bestand ontbreekt, slaat de workflow de Windows-job over en bevat een release enkel de Mac-bestanden.
+Windows (PowerShell, Python 3.13 en Inno Setup 6): `scripts\build-windows.ps1 -Version 1.2.0`. Het script installeert de afhankelijkheden, draait de self-test, bouwt `dist\Huurklaar-Meldingen.exe` en `dist\Huurklaar-Meldingen-Setup-<versie>.exe` en test de `.exe`'s zelf. In de release krijgen ze de vaste namen uit de tabel hierboven.
 
 ## De updatecheck
 

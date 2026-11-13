@@ -103,64 +103,55 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # KAN-120 levert scripts/build-windows.ps1. Zolang dat er niet is, wordt deze job overgeslagen.
-  # Het script bouwt dist/Huurklaar-Meldingen.exe (PyInstaller) en dist/Huurklaar-Meldingen-Setup.exe (Inno Setup).
+  # De bouwstappen zelf (PyInstaller, Inno Setup, self-test vóór en in de .exe's) staan in scripts/build-windows.ps1.
   windows:
     needs: prepare
     runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Is er een Windows-bouwscript?
-        id: has-script
-        shell: bash
-        run: echo "present=$([ -f scripts/build-windows.ps1 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        if: steps.has-script.outputs.present == 'true'
         with:
           python-version: "3.13"
       - name: Versie uit de tag
-        if: steps.has-script.outputs.present == 'true'
         shell: bash
         run: python scripts/set-version.py "$RELEASE_TAG"
       - name: Installeren
-        if: steps.has-script.outputs.present == 'true'
-        shell: bash
+        shell: pwsh
         run: |
-          python -m venv .venv
-          .venv/Scripts/python -m pip install --quiet -e ".[windows,dev]"
-          if ! command -v iscc >/dev/null 2>&1 && [ ! -f "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" ]; then
+          python -m pip install --quiet -e ".[windows,dev]"
+          $iscc = Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not $iscc -and -not (Get-Command ISCC.exe -ErrorAction SilentlyContinue)) {
             choco install innosetup --no-progress -y
-          fi
+          }
       - name: Controles vóór het bouwen
-        if: steps.has-script.outputs.present == 'true'
-        shell: bash
+        shell: pwsh
         run: |
-          .venv/Scripts/ruff check .
-          .venv/Scripts/ruff format --check .
-          .venv/Scripts/pytest -q
-          .venv/Scripts/python -m huurklaar_notifier --selftest
+          python -m ruff check .
+          python -m ruff format --check .
+          python -m pytest -q
       - name: .exe en setup.exe bouwen
-        if: steps.has-script.outputs.present == 'true'
         shell: pwsh
         run: scripts/build-windows.ps1 -Version "${{ needs.prepare.outputs.version }}"
-      - name: Controles in de gebouwde .exe
-        if: steps.has-script.outputs.present == 'true'
+      - name: Controles in het gebouwde pakket
         shell: pwsh
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          foreach ($f in 'dist/Huurklaar-Meldingen.exe', 'dist/Huurklaar-Meldingen-Setup.exe') {
+          foreach ($f in "dist/Huurklaar-Meldingen.exe", "dist/Huurklaar-Meldingen-Setup-$env:VERSION.exe") {
             if (-not (Test-Path $f)) { throw "FOUT: $f ontbreekt" }
           }
-          # Een --noconsole-exe heeft geen stdout: de uitkomst gaat naar een bestand (zie KAN-120).
-          $p = Start-Process -FilePath 'dist/Huurklaar-Meldingen.exe' -ArgumentList '--selftest', '--selftest-output', 'selftest.txt' -Wait -PassThru
-          Get-Content selftest.txt
-          if ($p.ExitCode -ne 0) { throw "FOUT: selftest van de .exe eindigde met $($p.ExitCode)" }
+          # De self-test in de .exe's draait al in het bouwscript; hier controleren we nog het versienummer.
+          $got = (Get-Item "dist/Huurklaar-Meldingen.exe").VersionInfo.ProductVersion
+          if ($got -ne $env:VERSION) { throw "FOUT: de .exe heeft versie $got, verwacht $env:VERSION" }
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: steps.has-script.outputs.present == 'true'
         with:
           name: windows
           path: |
             dist/Huurklaar-Meldingen.exe
-            dist/Huurklaar-Meldingen-Setup.exe
+            dist/Huurklaar-Meldingen-Setup-*.exe
           if-no-files-found: error
           retention-days: 7
 
@@ -180,9 +171,8 @@ jobs:
           mkdir release
           # Vaste namen zonder versie: .../releases/latest/download/<naam> werkt dan voor de downloadpagina (KAN-122).
           mv artifacts/mac/Huurklaar-Meldingen-*.dmg release/Huurklaar-Meldingen.dmg
-          if [ -d artifacts/windows ]; then
-            mv artifacts/windows/Huurklaar-Meldingen.exe artifacts/windows/Huurklaar-Meldingen-Setup.exe release/
-          fi
+          mv artifacts/windows/Huurklaar-Meldingen.exe release/
+          mv artifacts/windows/Huurklaar-Meldingen-Setup-*.exe release/Huurklaar-Meldingen-Setup.exe
           (cd release && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt)
       - name: Release aanmaken
         env:
