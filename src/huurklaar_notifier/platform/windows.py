@@ -29,7 +29,7 @@ from ..core.menu import (
     build_menu,
     status_line,
 )
-from ..core.poller import Poller
+from ..core.poller import Poller, UpdatePoller
 from ..core.state import Toast
 from . import windows_dialogs
 from .keyring_store import KeyringSecretStore
@@ -78,10 +78,13 @@ class TrayApp:
         self._rebuild_needed = True
         self._stop = threading.Event()
         self._poller = Poller(controller, self._results.put)
+        # Een gevonden update tekent het menu opnieuw (een lege lijst = geen meldingen, wel herbouwen).
+        self._updates = UpdatePoller(controller, lambda: self._results.put([]))
         self.icon = pystray.Icon("huurklaar", render_icon(None), APP_NAME, menu=pystray.Menu())
 
     def run(self) -> None:
         self._poller.start()
+        self._updates.start()
         self.icon.run(setup=self._start_loop)  # blokkeert tot `icon.stop()`
 
     def _start_loop(self, icon: pystray.Icon) -> None:
@@ -105,7 +108,9 @@ class TrayApp:
 
     def _render(self) -> None:
         c = self.c
-        entries = build_menu(c.state, c.language, c.config.language, c.platform.autostart.is_enabled())
+        entries = build_menu(
+            c.state, c.language, c.config.language, c.platform.autostart.is_enabled(), c.update
+        )
         self.icon.icon = render_icon(badge_for(c.state))
         self.icon.title = tooltip(status_line(c.state, c.language), APP_NAME)
         self.icon.menu = pystray.Menu(
@@ -130,6 +135,7 @@ class TrayApp:
         elif e.action == QUIT:
             self._stop.set()
             self._poller.stop()
+            self._updates.stop()
             self.icon.stop()
 
     def _settings(self) -> None:
