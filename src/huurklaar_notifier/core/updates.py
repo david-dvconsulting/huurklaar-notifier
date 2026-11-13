@@ -18,6 +18,7 @@ import urllib.request
 from dataclasses import dataclass
 
 from .. import __version__
+from .tls import ssl_context
 from .version import is_newer, parse_version
 
 REPO = "david-dvconsulting/huurklaar-notifier"
@@ -78,7 +79,7 @@ def fetch_latest_release(url: str = LATEST_URL, timeout: float = TIMEOUT) -> Rel
         },
     )
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 (vast https-adres)
+        with urllib.request.urlopen(req, timeout=timeout, context=ssl_context()) as resp:  # noqa: S310 (vast https-adres)
             body = resp.read(MAX_BODY + 1)
     except urllib.error.HTTPError as e:
         if e.code == 404:

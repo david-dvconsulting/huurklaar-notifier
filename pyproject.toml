@@ -6,6 +6,8 @@ requires-python = ">=3.13"
 dependencies = [
   # Sleutelopslag: Keychain (Mac) en Credential Manager (Windows) met dezelfde code.
   "keyring>=25",
+  # CA-certificaten voor https op macOS, waar Python er zelf geen heeft (core/tls.py).
+  "certifi>=2024.7.4",
 ]
 
 [project.optional-dependencies]
