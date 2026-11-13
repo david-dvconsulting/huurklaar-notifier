@@ -1,6 +1,6 @@
 #!/bin/bash
 # Bouwt "Huurklaar Meldingen.app" (Python ingebouwd), ondertekent ze ad hoc en maakt een .dmg.
-# Lokaal bruikbaar; de CI-workflow komt in KAN-121. Gebruik: scripts/build-mac.sh [versie]
+# Lokaal en in de releaseworkflow (.github/workflows/release.yml). Gebruik: scripts/build-mac.sh [versie]
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
