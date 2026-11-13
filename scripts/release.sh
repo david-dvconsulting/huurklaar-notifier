@@ -1,6 +1,9 @@
 #!/bin/bash
 # Maakt een release: controleert, maakt de tag op main en pusht hem. Daarna bouwt en publiceert GitHub Actions
-# (.github/workflows/release.yml). Gebruik: scripts/release.sh [vX.Y.Z]   (zonder argument vraagt het script ernaar)
+# (.github/workflows/release.yml).
+# Gebruik: scripts/release.sh [--minor | --major | vX.Y.Z]
+#   zonder argument: patch erbij (v1.2.3 wordt v1.2.4); --minor (v1.3.0); --major (v2.0.0);
+#   of een eigen versie, ook een voorversie (vX.Y.Z-rc.N).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -11,13 +14,18 @@ git fetch --tags --quiet origin
 
 LAST="$(git tag --list 'v[0-9]*' --sort=-v:refname | grep -v -- '-rc' | head -1 || true)"
 echo "Laatste release: ${LAST:-geen}"
-TAG="${1:-}"
-if [ -z "$TAG" ]; then
-  if [ -z "$LAST" ]; then SUGGEST="v0.1.0"; else
-    IFS=. read -r MA MI PA <<<"${LAST#v}"; SUGGEST="v$MA.$MI.$((PA + 1))"
-  fi
-  read -r -p "Nieuwe versie [$SUGGEST] (voorversie: vX.Y.Z-rc.N): " TAG
-  TAG="${TAG:-$SUGGEST}"
+ARG="${1:-}"
+if [[ "$ARG" == v* ]]; then
+  TAG="$ARG"
+else
+  if [ -z "$LAST" ]; then MA=0; MI=1; PA=0; else IFS=. read -r MA MI PA <<<"${LAST#v}"; fi
+  case "$ARG" in
+    --major) [ -z "$LAST" ] && : || { MA=$((MA + 1)); MI=0; PA=0; } ;;
+    --minor) [ -z "$LAST" ] && : || { MI=$((MI + 1)); PA=0; } ;;
+    "") [ -z "$LAST" ] && : || PA=$((PA + 1)) ;;
+    *) echo "FOUT: onbekend argument $ARG (gebruik --minor, --major of vX.Y.Z)"; exit 1 ;;
+  esac
+  TAG="v$MA.$MI.$PA"
 fi
 
 python3 scripts/set-version.py "$TAG" --check >/dev/null   # stopt bij een ongeldige tag
