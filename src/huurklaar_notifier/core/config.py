@@ -17,6 +17,14 @@ class Config:
     seen: list[str] = field(
         default_factory=list
     )  # ids van meldingen die al getoond zijn (geen persoonsgegevens)
+    # Updatecheck (KAN-121): wanneer we weer mogen kijken (epochseconden, blijft na een herstart bewaard) en de
+    # nieuwste gevonden versie, zodat de menuregel ook zonder netwerk blijft staan.
+    update_next_check: float = 0.0
+    update_version: str = ""
+
+
+def _number(value: object) -> float:
+    return float(value) if isinstance(value, int | float) and not isinstance(value, bool) else 0.0
 
 
 class ConfigStore:
@@ -30,6 +38,8 @@ class ConfigStore:
                 base_url=str(raw.get("base_url", "")),
                 language=str(raw.get("language", "auto")),
                 seen=[str(s) for s in raw.get("seen", [])][:500],
+                update_next_check=_number(raw.get("update_next_check")),
+                update_version=str(raw.get("update_version") or ""),
             )
         except (OSError, ValueError, AttributeError):
             return Config()

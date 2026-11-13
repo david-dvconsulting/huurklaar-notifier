@@ -1,0 +1,185 @@
+# Releases van Huurklaar Meldingen (KAN-121). Zie docs/bouwen-en-releasen.md.
+#
+# - Een tag `vX.Y.Z` (of `vX.Y.Z-rc.N` voor een voorversie) bouwt en publiceert één GitHub-release.
+# - `workflow_dispatch` is een proefrun: alles wordt gebouwd en getest, niets wordt gepubliceerd; de bestanden
+#   staan daarna als artefact bij de run.
+# - De tag is de enige bron van het versienummer (scripts/set-version.py). Geen secrets nodig.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Versie voor de proefrun, in de vorm vX.Y.Z of vX.Y.Z-rc.N (er wordt niets gepubliceerd)"
+        required: true
+        default: "v0.0.1-rc.1"
+
+# Standaard enkel lezen; alleen de publiceerjob krijgt schrijfrechten.
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # Altijd via een omgevingsvariabele naar de shell, nooit rechtstreeks in een script plakken.
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+jobs:
+  # Stopt vóór er iets gebouwd wordt als de tag niet klopt.
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: version
+        run: python3 scripts/set-version.py "$RELEASE_TAG" --check
+      - name: De tag staat op een commit van main
+        if: github.ref_type == 'tag'
+        run: |
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main \
+            || { echo "FOUT: tag $RELEASE_TAG staat niet op main"; exit 1; }
+      - name: Er bestaat nog geen release met deze tag
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "FOUT: er is al een release $RELEASE_TAG"; exit 1
+          fi
+
+  mac:
+    needs: prepare
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      - name: Versie uit de tag
+        run: python3 scripts/set-version.py "$RELEASE_TAG"
+      - name: Installeren
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet -e ".[mac,dev]"
+      - name: Controles vóór het bouwen
+        run: |
+          .venv/bin/ruff check .
+          .venv/bin/ruff format --check .
+          .venv/bin/pytest -q
+          .venv/bin/python -m huurklaar_notifier --selftest
+      - name: .app en .dmg bouwen (ad hoc ondertekend)
+        run: scripts/build-mac.sh "${{ needs.prepare.outputs.version }}"
+      - name: Controles in het gebouwde pakket
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          DMG="dist/Huurklaar-Meldingen-$VERSION.dmg"
+          test -f "$DMG"
+          hdiutil verify "$DMG"
+          MOUNT="$(mktemp -d)"
+          hdiutil attach "$DMG" -mountpoint "$MOUNT" -nobrowse -quiet
+          trap 'hdiutil detach "$MOUNT" -quiet' EXIT
+          APP="$MOUNT/Huurklaar Meldingen.app"
+          codesign --verify --deep --strict "$APP"
+          BIN="$APP/Contents/MacOS/Huurklaar Meldingen"
+          GOT="$("$BIN" --version)"
+          [ "$GOT" = "$VERSION" ] || { echo "FOUT: app meldt $GOT, verwacht $VERSION"; exit 1; }
+          PLIST_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
+          [ "$PLIST_VERSION" = "$VERSION" ] || { echo "FOUT: Info.plist heeft $PLIST_VERSION"; exit 1; }
+          "$BIN" --selftest
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mac
+          path: dist/Huurklaar-Meldingen-*.dmg
+          if-no-files-found: error
+          retention-days: 7
+
+  # De bouwstappen zelf (PyInstaller, Inno Setup, self-test vóór en in de .exe's) staan in scripts/build-windows.ps1.
+  windows:
+    needs: prepare
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      - name: Versie uit de tag
+        shell: bash
+        run: python scripts/set-version.py "$RELEASE_TAG"
+      - name: Installeren
+        shell: pwsh
+        run: |
+          python -m pip install --quiet -e ".[windows,dev]"
+          $iscc = Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not $iscc -and -not (Get-Command ISCC.exe -ErrorAction SilentlyContinue)) {
+            choco install innosetup --no-progress -y
+          }
+      - name: Controles vóór het bouwen
+        shell: pwsh
+        run: |
+          python -m ruff check .
+          python -m ruff format --check .
+          python -m pytest -q
+      - name: .exe en setup.exe bouwen
+        shell: pwsh
+        run: scripts/build-windows.ps1 -Version "${{ needs.prepare.outputs.version }}"
+      - name: Controles in het gebouwde pakket
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          foreach ($f in "dist/Huurklaar-Meldingen.exe", "dist/Huurklaar-Meldingen-Setup-$env:VERSION.exe") {
+            if (-not (Test-Path $f)) { throw "FOUT: $f ontbreekt" }
+          }
+          # De self-test in de .exe's draait al in het bouwscript; hier controleren we nog het versienummer.
+          $got = (Get-Item "dist/Huurklaar-Meldingen.exe").VersionInfo.ProductVersion
+          if ($got -ne $env:VERSION) { throw "FOUT: de .exe heeft versie $got, verwacht $env:VERSION" }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows
+          path: |
+            dist/Huurklaar-Meldingen.exe
+            dist/Huurklaar-Meldingen-Setup-*.exe
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    # Enkel bij een echte tag; een proefrun (workflow_dispatch) publiceert nooit.
+    if: github.ref_type == 'tag' && needs.mac.result == 'success' && needs.windows.result == 'success'
+    needs: [prepare, mac, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # nodig om de release aan te maken; verder krijgt geen enkele job dit recht
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: artifacts
+      - name: Bestanden klaarzetten met vaste namen
+        run: |
+          mkdir release
+          # Vaste namen zonder versie: .../releases/latest/download/<naam> werkt dan voor de downloadpagina (KAN-122).
+          mv artifacts/mac/Huurklaar-Meldingen-*.dmg release/Huurklaar-Meldingen.dmg
+          mv artifacts/windows/Huurklaar-Meldingen.exe release/
+          mv artifacts/windows/Huurklaar-Meldingen-Setup-*.exe release/Huurklaar-Meldingen-Setup.exe
+          (cd release && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt)
+      - name: Release aanmaken
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+        run: |
+          FLAGS=""
+          [ "$PRERELEASE" = "true" ] && FLAGS="--prerelease"
+          gh release create "$RELEASE_TAG" release/* \
+            --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes --title "Huurklaar Meldingen $RELEASE_TAG" $FLAGS

@@ -6,12 +6,14 @@ import sys
 import tempfile
 from pathlib import Path
 
+from ..testing.fake_github import FakeGithub
 from ..testing.fake_server import EMPTY, FAKE_KEY, FakeServer
 from ..testing.fakes import FakePlatform
 from .controller import Controller
 from .i18n import CATALOG, LANGUAGES
 from .menu import build_menu
 from .state import Status
+from .updates import fetch_latest_release
 
 
 def run(output: str | None = None) -> int:
@@ -42,6 +44,21 @@ def run(output: str | None = None) -> int:
         c.platform.secrets.set("hkn_andere_sleutel_enkel_test")
         c.poll()
         check(c.state.status is Status.AUTH_FAILED and c.next_delay() is None, "ongeldige sleutel")
+
+    with FakeGithub() as github, tempfile.TemporaryDirectory() as tmp:
+        u = Controller(
+            FakePlatform(Path(tmp)),
+            update_fetch=lambda: fetch_latest_release(github.url, timeout=2),
+            current_version="1.0.0",
+        )
+        check(u.check_for_update() and u.update is not None and u.update.version == "1.2.0", "nieuwe versie")
+        check(
+            any("v1.2.0" in e.label for e in build_menu(u.state, "en", "auto", False, u.update)), "menuregel"
+        )
+        github.status = 500
+        u.config.update_next_check = 0.0
+        u.check_for_update()
+        check(u.update is not None, "fout laat een bekende update staan")
 
     if sys.platform == "win32":
         from ..platform import windows_selftest

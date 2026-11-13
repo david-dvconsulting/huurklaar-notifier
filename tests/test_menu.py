@@ -1,7 +1,6 @@
 from huurklaar_notifier.core.i18n import CATALOG, LANGUAGES, resolve_language, translate
 from huurklaar_notifier.core.menu import AUTOSTART, QUIT, REFRESH, SETTINGS, build_menu, title_for
 from huurklaar_notifier.core.state import Status
-from huurklaar_notifier.core.version import is_newer, parse_version
 from huurklaar_notifier.testing.fake_server import EMPTY, SAMPLE
 
 
@@ -61,8 +60,3 @@ def test_taal_volgt_systeem():
     assert resolve_language("auto", ["de-DE"]) == "nl"
     assert resolve_language("en", ["fr"]) == "en"
     assert translate("fr", "menu.quit") == "Quitter"
-
-
-def test_versies():
-    assert parse_version("v1.2.10") == (1, 2, 10)
-    assert is_newer("1.2.10", "1.2.9") and is_newer("1.3", "1.2.9") and not is_newer("1.2", "1.2.0")

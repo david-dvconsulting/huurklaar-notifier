@@ -1,6 +1,6 @@
 [project]
 name = "huurklaar-notifier"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Huurklaar Meldingen: menubalk- en tray-app met meldingen bij taken en vereiste acties"
 requires-python = ">=3.13"
 dependencies = [
@@ -28,11 +28,15 @@ huurklaar-notifier = "huurklaar_notifier.__main__:main"
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools.dynamic]
+version = { attr = "huurklaar_notifier._version.__version__" }
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src"]  # ook in een worktree de eigen code testen, niet een elders geïnstalleerde kopie
 
 [tool.ruff]
 line-length = 110
