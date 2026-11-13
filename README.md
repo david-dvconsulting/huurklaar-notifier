@@ -6,7 +6,15 @@ A menu bar app (Mac) and tray app (Windows) that shows notifications for tasks a
 
 ## Setup
 
-Choose **Instellingen…** (Settings) in the menu and enter the **Huurklaar API address** (for dev see `docs/developer_info.md` in the Huurklaar repo; locally `http://localhost:3000`) and the **notification key** (Huurklaar > My profile > Notifications). The address is stored in `~/Library/Application Support/Huurklaar Meldingen/config.json` (Mac) or `%APPDATA%\Huurklaar Meldingen\config.json` (Windows). The key is stored only in the Keychain (Mac) or the Windows Credential Manager, never in a file or a log. Only `https` is allowed, except for localhost.
+Choose **Instellingen…** (Settings) in the menu and enter the **Huurklaar API address** and the **notification key** (Huurklaar > My profile > Notifications). The address is stored in `~/Library/Application Support/Huurklaar Meldingen/config.json` (Mac) or `%APPDATA%\Huurklaar Meldingen\config.json` (Windows). The key is stored only in the Keychain (Mac) or the Windows Credential Manager, never in a file or a log. Only `https` is allowed, except for localhost.
+
+| Environment | App | API address to enter |
+|---|---|---|
+| Production (PRD) | https://app.huurklaar.be | `https://zf02fcpfvi.execute-api.eu-central-1.amazonaws.com` |
+| Test (DEV) | https://app-dev.huurklaar.be | `https://gqncu23i4i.execute-api.eu-central-1.amazonaws.com` |
+| Local development | http://localhost:5173 | `http://localhost:3000` |
+
+The key belongs to one environment: create it in the app of the same environment as the address. The page Huurklaar > My profile > Notifications also shows the right address, with a copy button.
 
 ## Development
 
