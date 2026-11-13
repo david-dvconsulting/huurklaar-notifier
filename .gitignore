@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+# Nooit een echte sleutel in een publieke repo
+*.key
+.env*
