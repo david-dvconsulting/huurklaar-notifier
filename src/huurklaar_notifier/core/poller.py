@@ -2,17 +2,26 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 from collections.abc import Callable
 
 from .controller import Controller
-from .state import Toast
+from .state import BACKOFF_MAX, Toast
+
+log = logging.getLogger(__name__)
 
 
 class Poller:
-    def __init__(self, controller: Controller, on_result: Callable[[list[Toast]], None]) -> None:
+    def __init__(
+        self,
+        controller: Controller,
+        on_result: Callable[[list[Toast]], None],
+        error_delay: float = BACKOFF_MAX,  # wachttijd na een onverwachte fout (in tests kleiner)
+    ) -> None:
         self._c = controller
         self._on_result = on_result
+        self._error_delay = error_delay
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, name="poller", daemon=True)
 
@@ -26,9 +35,13 @@ class Poller:
     def _run(self) -> None:
         while not self._stop.is_set():
             self._c.wake.clear()
-            toasts = self._c.poll()
-            self._on_result(toasts)
-            delay = self._c.next_delay()  # None = wachten tot er nieuwe instellingen zijn
+            try:
+                toasts = self._c.poll()
+                self._on_result(toasts)
+                delay = self._c.next_delay()  # None = wachten tot er nieuwe instellingen zijn
+            except Exception as e:  # een fout mag de pollus niet stoppen; enkel het type loggen
+                log.warning("poll mislukt: %s", type(e).__name__)
+                delay = self._error_delay
             self._c.wake.wait(timeout=delay)
 
 
