@@ -3,6 +3,8 @@ name = "huurklaar-notifier"
 dynamic = ["version"]
 description = "Huurklaar Meldingen: menubalk- en tray-app met meldingen bij taken en vereiste acties"
 requires-python = ">=3.13"
+# Dezelfde gegevens als AUTHOR en PROJECT_URL in core/defaults.py. Bewust geen e-mailadres: de repo is publiek.
+authors = [{ name = "DV Consulting" }]
 dependencies = [
   # Sleutelopslag: Keychain (Mac) en Credential Manager (Windows) met dezelfde code.
   "keyring>=25",
@@ -22,6 +24,10 @@ windows = [
   "win11toast>=0.36",
 ]
 dev = ["pytest>=8", "ruff>=0.6", "pyinstaller>=6", "pillow>=10.1"]
+
+[project.urls]
+Homepage = "https://github.com/david-dvconsulting/huurklaar-notifier"
+Issues = "https://github.com/david-dvconsulting/huurklaar-notifier/issues"
 
 [project.scripts]
 huurklaar-notifier = "huurklaar_notifier.__main__:main"

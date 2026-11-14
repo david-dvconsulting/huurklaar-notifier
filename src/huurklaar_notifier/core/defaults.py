@@ -9,6 +9,11 @@ lokale omgeving gebruikt, vervangt het adres in het venster.
 DEFAULT_BASE_URL = "https://zf02fcpfvi.execute-api.eu-central-1.amazonaws.com"
 DEFAULT_APP_URL = "https://app.huurklaar.be"
 
+# Wie de app maakt en waar de broncode staat. Het menu-item "Over" opent `PROJECT_URL`. Dezelfde gegevens staan
+# in pyproject.toml, scripts/build-mac.sh, scripts/make-version-file.py en de Inno Setup-installer.
+AUTHOR = "DV Consulting"
+PROJECT_URL = "https://github.com/david-dvconsulting/huurklaar-notifier"
+
 # Per omgeving: het API-adres (zoals in de README) en het webadres van de app. Het menu-item "sleutel aanmaken"
 # moet naar dezelfde omgeving openen als de sleutel waarmee de app meldingen ophaalt.
 _APP_URL_BY_API = {

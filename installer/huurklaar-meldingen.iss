@@ -17,6 +17,10 @@ AppName={#AppName}
 AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
 AppPublisher=Huurklaar
+; Auteur en projectpagina, zichtbaar in "Apps en onderdelen" (AUTHOR en PROJECT_URL in core/defaults.py).
+AppCopyright=Copyright 2026 DV Consulting
+AppPublisherURL=https://github.com/david-dvconsulting/huurklaar-notifier
+AppSupportURL=https://github.com/david-dvconsulting/huurklaar-notifier/issues
 DefaultDirName={autopf}\{#AppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest

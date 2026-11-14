@@ -11,7 +11,7 @@ from typing import Literal
 
 from .. import __version__
 from .api import is_openable
-from .defaults import app_url_for
+from .defaults import PROJECT_URL, app_url_for
 from .i18n import LANGUAGES, NL, translate
 from .models import Item
 from .state import State, Status
@@ -296,7 +296,7 @@ def build_menu(
         Entry(t("menu.reminder"), action=REMINDER, checked=daily_reminder),
         Entry(t("menu.autostart"), action=AUTOSTART, checked=autostart),
         SEPARATOR,
-        Entry(t("menu.about", version=__version__), enabled=False),
+        Entry(t("menu.about", version=__version__), url=PROJECT_URL),
         Entry(t("menu.quit"), action=QUIT),
     ]
     return entries
