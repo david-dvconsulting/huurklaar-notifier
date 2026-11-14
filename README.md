@@ -16,6 +16,10 @@ Choose **Instellingen…** (Settings) in the menu and enter the **Huurklaar API 
 
 The key belongs to one environment: create it in the app of the same environment as the address. The page Huurklaar > My profile > Notifications also shows the right address, with a copy button.
 
+## One-click linking
+
+The app registers the URL scheme `huurklaar-meldingen://`. "Koppel de app" in Huurklaar (My profile > Notifications) opens it and fills in the address and the key in one click, after you confirm in the app. On the Mac this works as soon as the app has been started once from Applications. On Windows the installer registers the scheme, and the app also does it itself at every start.
+
 ## Development
 
 ```bash

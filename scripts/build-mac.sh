@@ -27,6 +27,14 @@ for key in CFBundleShortVersionString CFBundleVersion; do
     || /usr/libexec/PlistBuddy -c "Add :$key string $VERSION" "$PLIST"
 done
 
+# URL-schema huurklaar-meldingen://: "Koppel de app" in Huurklaar opent de app met adres en sleutel.
+/usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes array" "$PLIST"
+/usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0 dict" "$PLIST"
+/usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLName string $BUNDLE_ID" "$PLIST"
+/usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleTypeRole string Viewer" "$PLIST"
+/usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes array" "$PLIST"
+/usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string huurklaar-meldingen" "$PLIST"
+
 # Ad hoc ('-') is gratis en nodig op Apple Silicon; er is geen Apple Developer-account.
 codesign --force --deep -s - "$APP"
 codesign --verify --deep --strict "$APP"
