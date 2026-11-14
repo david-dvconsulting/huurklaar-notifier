@@ -55,6 +55,18 @@ def test_vertalingen_hebben_dezelfde_sleutels_en_plaatshouders():
     assert all(set(CATALOG[lang]) == set(CATALOG["nl"]) for lang in LANGUAGES)
 
 
+def test_onbekende_soort_crasht_het_menu_niet(controller, server):
+    server.body = {**SAMPLE, "items": [{**SAMPLE["items"][1], "kind": "nieuwesoort"}]}
+    controller.poll()
+    entries = build_menu(controller.state, "nl", "auto", False)
+    assert "Melding: Lekkage" in labels(entries)
+
+
+def test_translate_onbekende_sleutel_geeft_sleutel_terug():
+    assert translate("nl", "bestaat.niet") == "bestaat.niet"
+    assert translate("fr", "bestaat.niet") == "bestaat.niet"
+
+
 def test_taal_volgt_systeem():
     assert resolve_language("auto", ["fr-BE", "en"]) == "fr"
     assert resolve_language("auto", ["de-DE"]) == "nl"
