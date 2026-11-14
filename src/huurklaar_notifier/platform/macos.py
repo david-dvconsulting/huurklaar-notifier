@@ -42,6 +42,7 @@ from .macos_location import (
     program_arguments,
     repair_launch_agent,
 )
+from .settings_dialog import run_on_main, settings_texts
 
 log = logging.getLogger(__name__)
 
@@ -202,18 +203,34 @@ def alert(lang: str, message: str) -> None:
     )
 
 
-def ask_settings(lang: str, base_url: str, key_saved: bool) -> tuple[str, str] | None:
-    """Twee opeenvolgende vragen: adres en sleutel (verborgen). `None` = geannuleerd."""
+def _ask_settings_osascript(lang: str, base_url: str, key_saved: bool) -> tuple[str, str] | None:
+    """Terugval: twee opeenvolgende osascript-vragen, adres en sleutel (verborgen). `None` = geannuleerd."""
     url = ask(lang, translate(lang, "dialog.url_prompt"), base_url)
     if url is None:
         return None
-    key_prompt = translate(lang, "dialog.key_prompt")
-    if key_saved:
-        key_prompt += "\n" + translate(lang, "dialog.key_keep")
-    key = ask(lang, key_prompt, "", hidden=True)
+    key = ask(lang, settings_texts(lang, key_saved).key_label, "", hidden=True)
     if key is None:
         return None
     return url, key
+
+
+def ask_settings(
+    lang: str, base_url: str, key_saved: bool, *, start_timeout: float = 30.0
+) -> tuple[str, str] | None:
+    """Eén venster met adres en sleutel, op de hoofdthread. Wordt aangeroepen vanaf de instellingenthread.
+    Lukt het venster niet, dan vallen we terug op osascript. `None` = geannuleerd."""
+    from PyObjCTools import AppHelper
+
+    from .macos_settings import show_settings
+
+    texts = settings_texts(lang, key_saved)
+    try:
+        return run_on_main(
+            lambda: show_settings(texts, base_url), AppHelper.callAfter, start_timeout=start_timeout
+        )
+    except Exception as e:  # enkel het type loggen: de invoer bevat een sleutel
+        log.warning("instellingenvenster mislukt, terugval op osascript: %s", type(e).__name__)
+        return _ask_settings_osascript(lang, base_url, key_saved)
 
 
 def forget_callbacks(items, registry=None) -> None:
@@ -311,7 +328,8 @@ class MenubarApp(rumps.App):
 
 
 class _MacUi:
-    """De Mac-kant van `AppUi`: dialogen via osascript, de rest delegeert naar de menubalk-app."""
+    """De Mac-kant van `AppUi`: instellingenvenster via AppKit, alerts via osascript; de rest delegeert naar
+    de menubalk-app."""
 
     def __init__(self, app: MenubarApp) -> None:
         self._app = app
