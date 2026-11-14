@@ -11,6 +11,7 @@ from typing import Literal
 from .. import __version__
 from .api import is_openable
 from .i18n import LANGUAGES, NL, translate
+from .models import Item
 from .state import State, Status
 from .state import app_url as _app_url
 from .updates import Release
@@ -125,6 +126,47 @@ def _fit(before: str, title: str, where: str = "", after: str = "") -> str:
     return _shorten(before + title + where + after)
 
 
+# Vaste volgorde van de groepen in het menu; onbekende soorten komen samen onder `OTHER_GROUP`.
+GROUP_ORDER = ("invoiceAttention", "complaint", "report", "task", "myReport", "tenantTask")
+OTHER_GROUP = "other"
+
+
+def group_items(items: Iterable[Item]) -> list[tuple[str, list[Item]]]:
+    """Verdeelt de items over de groepen in de vaste volgorde. Lege groepen vallen weg.
+
+    Binnen een groep blijft de volgorde van de server (dringendste eerst).
+    """
+    buckets: dict[str, list[Item]] = {key: [] for key in (*GROUP_ORDER, OTHER_GROUP)}
+    for item in items:
+        buckets[item.kind if item.kind in GROUP_ORDER else OTHER_GROUP].append(item)
+    return [(key, group) for key, group in buckets.items() if group]
+
+
+def _distribute(groups: list[tuple[str, list[Item]]], limit: int) -> list[list[Item]]:
+    """Round-robin over de groepen tot `limit` items of alles getoond is: elke groep krijgt minstens één item."""
+    shown: list[list[Item]] = [[] for _ in groups]
+    total = 0
+    depth = 0
+    while total < limit and any(depth < len(g) for _, g in groups):
+        for index, (_, group) in enumerate(groups):
+            if total < limit and depth < len(group):
+                shown[index].append(group[depth])
+                total += 1
+        depth += 1
+    return shown
+
+
+def _item_entry(item: Item, lang: str, today: date, with_kind: bool) -> Entry:
+    """Eén regel voor een item. `with_kind`: zet de soort ervoor (bij één groep, zonder kopregel)."""
+    before = "⚠️ " if item.overdue else ""
+    if with_kind:
+        before += kind_label(lang, item.kind) + ": "
+    where = " — " + item.property_label if item.property_label else ""
+    due = due_label(item.due_date, today, lang)
+    after = " · " + due if due else ""
+    return Entry(_fit(before, item.title, where, after), url=item.href if is_openable(item.href) else None)
+
+
 def build_menu(
     state: State,
     lang: str,
@@ -146,14 +188,13 @@ def build_menu(
     snap = state.snapshot
     if snap and state.status in (Status.ATTENTION, Status.OFFLINE) and snap.items:
         entries.append(SEPARATOR)
-        for item in snap.items[:MAX_MENU_ITEMS]:
-            prefix = "⚠️ " if item.overdue else ""
-            where = " — " + item.property_label if item.property_label else ""
-            due = due_label(item.due_date, today, lang)
-            after = " · " + due if due else ""
-            label = _fit(f"{prefix}{kind_label(lang, item.kind)}: ", item.title, where, after)
-            entries.append(Entry(label, url=item.href if is_openable(item.href) else None))
-        rest = snap.total - min(len(snap.items), MAX_MENU_ITEMS)
+        groups = group_items(snap.items)
+        shown = _distribute(groups, MAX_MENU_ITEMS)
+        for (key, group), visible in zip(groups, shown, strict=True):
+            if len(groups) > 1 and visible:  # bij één groep zegt het voorvoegsel de soort al
+                entries.append(Entry(t(f"group.{key}", n=len(group)), enabled=False))
+            entries += [_item_entry(item, lang, today, with_kind=len(groups) == 1) for item in visible]
+        rest = snap.total - sum(len(v) for v in shown)
         if rest > 0:
             entries.append(Entry(t("menu.more", n=rest), url=_app_url(list(snap.items))))
     if snap and state.status in (Status.ATTENTION, Status.IDLE):

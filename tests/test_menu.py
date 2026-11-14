@@ -40,7 +40,8 @@ def test_menu_met_taken(controller):
     entries = build_menu(controller.state, "nl", "auto", False, today=VANDAAG)
     assert entries[0].label == "2 open · 1 te laat"
     item = next(e for e in entries if "Indexatie nakijken" in e.label)
-    assert item.label == "⚠️ Taak: Indexatie nakijken — Teststraat 1 · 13 d te laat"
+    # Twee groepen (taak en klacht): de kopregel zegt de soort, dus geen voorvoegsel.
+    assert item.label == "⚠️ Indexatie nakijken — Teststraat 1 · 13 d te laat"
     assert item.url == "https://app.example.test/tasks/task-1"
     assert {e.action for e in entries} >= {REFRESH, SETTINGS, AUTOSTART, QUIT}
     assert title_for(controller.state) == "1"
@@ -257,3 +258,116 @@ def test_bijgewerkt_om_staat_ook_bij_attention_en_idle(tmp_path, server, status_
     controller.poll()
     verwacht = f"Bijgewerkt om {time.strftime('%H:%M', time.localtime(KLOK))}"
     assert verwacht in labels(build_menu(controller.state, "nl", "auto", False, today=VANDAAG))
+
+
+def _item(kind, n, **extra):
+    return {**SAMPLE["items"][1], "id": f"{kind}-{n}", "kind": kind, "title": f"{kind} {n}", **extra}
+
+
+def _toon(controller, server, items, total=None):
+    total = len(items) if total is None else total
+    server.body = {**SAMPLE, "items": items, "counts": {"total": total, "overdue": 0, "actionRequired": 0}}
+    controller.poll()
+    return build_menu(controller.state, "nl", "auto", False, today=VANDAAG)
+
+
+def test_drie_groepen_in_vaste_volgorde_met_aantallen(controller, server):
+    items = [
+        _item("task", 1),
+        _item("complaint", 1),
+        _item("task", 2),
+        _item("invoiceAttention", 1),
+        _item("complaint", 2),
+        _item("task", 3),
+    ]
+    entries = _toon(controller, server, items)
+    assert [e.label for e in entries if not e.enabled and e.label.endswith(")")] == [
+        "Facturen (1)",
+        "Klachten (2)",
+        "Taken (3)",
+    ]
+    assert labels(entries)[2:11] == [
+        "Facturen (1)",
+        "invoiceAttention 1",
+        "Klachten (2)",
+        "complaint 1",
+        "complaint 2",
+        "Taken (3)",
+        "task 1",
+        "task 2",
+        "task 3",
+    ]
+
+
+def test_volgorde_binnen_een_groep_is_die_van_de_server(controller, server):
+    items = [_item("task", 3), _item("task", 1), _item("complaint", 9), _item("task", 2)]
+    lijst = labels(_toon(controller, server, items))
+    assert [x for x in lijst if x.startswith("task")] == ["task 3", "task 1", "task 2"]
+
+
+def test_alle_zes_bekende_soorten_en_andere_in_vaste_volgorde(controller, server):
+    soorten = ["tenantTask", "nieuw1", "myReport", "task", "report", "complaint", "invoiceAttention"]
+    entries = _toon(controller, server, [_item(k, 1) for k in soorten])
+    koppen = [e.label for e in entries if not e.enabled and e.label.endswith("(1)")]
+    assert koppen == [
+        "Facturen (1)",
+        "Klachten (1)",
+        "Meldingen (1)",
+        "Taken (1)",
+        "Jouw meldingen (1)",
+        "Taken voor jou (1)",
+        "Andere (1)",
+    ]
+
+
+def test_grens_en_verdeling_met_veel_taken_en_twee_kleine_groepen(controller, server):
+    items = [_item("task", i) for i in range(12)] + [_item("complaint", 1), _item("invoiceAttention", 1)]
+    entries = _toon(controller, server, items)
+    getoond = [
+        e for e in entries if e.url and e.label.split(" ")[0] in {"task", "complaint", "invoiceAttention"}
+    ]
+    assert len(getoond) == 10  # kopregels tellen niet mee
+    assert sum(e.label.startswith("task") for e in getoond) == 8
+    assert "complaint 1" in labels(entries) and "invoiceAttention 1" in labels(entries)
+    assert "Taken (12)" in labels(entries)  # het aantal in het antwoord, niet het getoonde
+    assert "… en nog 4 in Huurklaar" in labels(entries)
+
+
+def test_verdeling_over_twee_grote_groepen_is_eerlijk(controller, server):
+    items = [_item("task", i) for i in range(9)] + [_item("complaint", i) for i in range(9)]
+    lijst = labels(_toon(controller, server, items))
+    assert sum(x.startswith("complaint") for x in lijst) == 5
+    assert sum(x.startswith("task") for x in lijst) == 5
+    assert "Klachten (9)" in lijst and "Taken (9)" in lijst
+    assert "… en nog 8 in Huurklaar" in lijst
+
+
+def test_een_groep_heeft_geen_kopregel_en_houdt_het_voorvoegsel(controller, server):
+    entries = _toon(controller, server, [_item("task", 1), _item("task", 2)])
+    lijst = labels(entries)
+    assert "Taak: task 1" in lijst and "Taak: task 2" in lijst
+    assert not any(x.startswith("Taken (") for x in lijst)
+
+
+def test_onbekende_soorten_komen_samen_onder_andere_achteraan(controller, server):
+    items = [_item("nieuw1", 1), _item("task", 1), _item("nieuw2", 1), _item("nieuw1", 2)]
+    lijst = labels(_toon(controller, server, items))
+    assert lijst[2:8] == ["Taken (1)", "task 1", "Andere (3)", "nieuw1 1", "nieuw2 1", "nieuw1 2"]
+
+
+def test_kopregels_zijn_uitgeschakeld_zonder_url_of_actie(controller, server):
+    entries = _toon(controller, server, [_item("task", 1), _item("complaint", 1), _item("nieuw1", 1)])
+    koppen = [e for e in entries if e.label in {"Klachten (1)", "Taken (1)", "Andere (1)"}]
+    assert len(koppen) == 3
+    for kop in koppen:
+        assert kop.enabled is False
+        assert kop.url is None and kop.action is None and not kop.children and not kop.separator
+
+
+@pytest.mark.parametrize("lang", LANGUAGES)
+def test_kopregels_bestaan_in_elke_taal(controller, server, lang):
+    _toon(controller, server, [_item("task", 1), _item("complaint", 1)])
+    entries = build_menu(controller.state, lang, "auto", False, today=VANDAAG)
+    koppen = [e.label for e in entries if not e.enabled and e.label.endswith("(1)")]
+    assert len(koppen) == 2
+    assert not any(k.startswith("group.") for k in koppen)
