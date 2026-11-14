@@ -19,18 +19,9 @@ from pathlib import Path
 import pystray
 
 from ..core.api import is_openable
+from ..core.app_actions import AppActions
 from ..core.controller import Controller
-from ..core.menu import (
-    AUTOSTART,
-    LANGUAGE_PREFIX,
-    QUIT,
-    REFRESH,
-    SETTINGS,
-    Entry,
-    MenuCache,
-    build_menu,
-    status_line,
-)
+from ..core.menu import Entry, MenuCache, build_menu, status_line
 from ..core.poller import Poller, UpdatePoller
 from ..core.state import Toast
 from . import windows_dialogs
@@ -85,6 +76,7 @@ class TrayApp:
         self._poller = Poller(controller, self._results.put)
         # Een gevonden update tekent het menu opnieuw (een lege lijst = geen meldingen, wel herbouwen).
         self._updates = UpdatePoller(controller, lambda: self._results.put([]))
+        self.actions = AppActions(controller, _WindowsUi(self))
         self.icon = pystray.Icon("huurklaar", render_icon(None), APP_NAME, menu=pystray.Menu())
 
     def run(self) -> None:
@@ -100,13 +92,8 @@ class TrayApp:
     def _loop(self) -> None:
         while not self._stop.is_set():
             try:
-                try:
-                    while True:
-                        for t in self._results.get_nowait():
-                            self.c.platform.notifier.notify(t.title, t.body, t.url)
-                        self._rebuild_needed = True
-                except queue.Empty:
-                    pass
+                if self.actions.drain(self._results, self.c.platform.notifier):
+                    self._rebuild_needed = True
                 if self._rebuild_needed:
                     self._render()
                     self._rebuild_needed = False  # pas na een geslaagde render, anders opnieuw proberen
@@ -136,41 +123,36 @@ class TrayApp:
             raise
 
     def _on_entry(self, e: Entry) -> None:
-        if e.url:
-            open_url(e.url)
-        elif e.action == REFRESH:
-            self.c.wake.set()
-        elif e.action == SETTINGS:
-            threading.Thread(target=self._settings, daemon=True).start()
-        elif e.action == AUTOSTART:
-            a = self.c.platform.autostart
-            a.set_enabled(not a.is_enabled())
-            self._rebuild_needed = True
-        elif e.action and e.action.startswith(LANGUAGE_PREFIX):
-            self.c.set_language(e.action[len(LANGUAGE_PREFIX) :])
-            self._rebuild_needed = True
-        elif e.action == QUIT:
-            self._stop.set()
-            self._poller.stop()
-            self._updates.stop()
-            self.icon.stop()
+        self.actions.handle(e)
 
-    def _settings(self) -> None:
-        lang = self.c.language
-        answer = windows_dialogs.ask_settings(
-            lang, self.c.config.base_url, bool(self.c.platform.secrets.get())
-        )
-        if answer is None:
-            return
-        url, key = answer
-        try:
-            self.c.configure(url, key or None)
-        except ValueError as e:
-            from ..core.i18n import translate
+    def shutdown(self) -> None:
+        """Lus en pollers stoppen en het tray-icoon sluiten (de quit-actie)."""
+        self._stop.set()
+        self._poller.stop()
+        self._updates.stop()
+        self.icon.stop()
 
-            msg = "dialog.invalid_url" if "adres" in str(e) or "https" in str(e) else "dialog.invalid_key"
-            windows_dialogs.alert(lang, translate(lang, msg))
-        self._rebuild_needed = True
+
+class _WindowsUi:
+    """De Windows-kant van `AppUi`: Tk-dialoog en MessageBox, de rest delegeert naar de tray-app."""
+
+    def __init__(self, app: TrayApp) -> None:
+        self._app = app
+
+    def open_url(self, url: str) -> None:
+        open_url(url)
+
+    def ask_settings(self, lang: str, base_url: str, key_saved: bool) -> tuple[str, str] | None:
+        return windows_dialogs.ask_settings(lang, base_url, key_saved)
+
+    def alert(self, message: str) -> None:
+        windows_dialogs.alert(self._app.c.language, message)
+
+    def request_rebuild(self) -> None:
+        self._app._rebuild_needed = True
+
+    def quit(self) -> None:
+        self._app.shutdown()
 
 
 def run() -> int:

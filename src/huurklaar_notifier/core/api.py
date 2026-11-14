@@ -28,26 +28,39 @@ class NetworkError(ApiError):
     """Geen verbinding, time-out of een serverfout: later opnieuw proberen."""
 
 
+class InvalidUrlError(ValueError):
+    """Het ingevoerde adres is niet bruikbaar. Subklasse van ValueError: bestaande `except ValueError` blijft werken."""
+
+
+class InvalidKeyError(ValueError):
+    """De ingevoerde meldingssleutel is niet bruikbaar (of er is er geen bewaard)."""
+
+
 def validate_base_url(raw: str) -> str:
-    """Normaliseert het adres van de Huurklaar-API of werpt een ValueError.
+    """Normaliseert het adres van de Huurklaar-API of werpt een InvalidUrlError (een ValueError).
 
     Alleen https (de sleutel gaat in een header mee), behalve voor een lokale ontwikkelserver.
     """
-    parts = urlsplit(raw.strip())
-    host = parts.hostname
+    try:
+        parts = urlsplit(raw.strip())
+        host = parts.hostname
+    except ValueError as e:
+        # urlsplit werpt zelf een gewone ValueError, bv. bij "https://[::1" (onvolledig IPv6-adres).
+        raise InvalidUrlError("geen geldig adres") from e
     if not host or parts.scheme not in ("https", "http"):
-        raise ValueError("geen geldig adres")
+        raise InvalidUrlError("geen geldig adres")
     if parts.scheme == "http" and host not in _LOCAL_HOSTS:
-        raise ValueError("enkel https is toegestaan")
+        raise InvalidUrlError("enkel https is toegestaan")
     if parts.username or parts.password or parts.query or parts.fragment:
-        raise ValueError("geen aanmeldgegevens, query of fragment in het adres")
+        raise InvalidUrlError("geen aanmeldgegevens, query of fragment in het adres")
     return f"{parts.scheme}://{parts.netloc}{parts.path.rstrip('/')}"
 
 
 def validate_key(raw: str) -> str:
+    """Geeft de opgeschoonde sleutel terug of werpt een InvalidKeyError (een ValueError)."""
     key = raw.strip()
     if not key.startswith(KEY_PREFIX) or len(key) < 12 or any(c.isspace() for c in key):
-        raise ValueError("geen geldige meldingssleutel")
+        raise InvalidKeyError("geen geldige meldingssleutel")
     return key
 
 
