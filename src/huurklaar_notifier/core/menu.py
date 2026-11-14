@@ -259,10 +259,10 @@ def build_menu(
         if rest > 0:
             entries.append(Entry(t("menu.more", n=rest), url=_app_url(list(snap.items))))
     if snap and state.status in (Status.ATTENTION, Status.IDLE):
-        link = _app_url(list(snap.items))
-        if link:
-            # Het standaarditem: pystray voert bij een linksklik het item met default=True uit.
-            entries += [SEPARATOR, Entry(t("menu.open_app"), url=link, default=True)]
+        # Het standaarditem: pystray voert bij een linksklik het item met default=True uit. De link uit de
+        # items wijst naar de juiste omgeving; een lege lijst heeft er geen, dan volgt de app uit het API-adres.
+        link = _app_url(list(snap.items)) or app_url_for(base_url) + "/"
+        entries += [SEPARATOR, Entry(t("menu.open_app"), url=link, default=True)]
 
     languages = tuple(
         Entry(
@@ -279,7 +279,8 @@ def build_menu(
     if paused_until > 0:
         pause.append(Entry(t("menu.pause_off"), action=PAUSE_PREFIX + PAUSE_OFF))
     kinds = kind_entries(state, lang, muted_kinds)
-    # Zonder "Huurklaar openen" (geen link, of niet ingesteld) is de instelling het standaarditem.
+    # Zonder "Huurklaar openen" (niet ingesteld, sleutel ongeldig, geen verbinding) is de instelling het
+    # standaarditem.
     # Er is altijd precies één: wie ook maar één `default` zet, verandert deze regel niet.
     settings = Entry(t("menu.settings"), action=SETTINGS, default=not any(e.default for e in entries))
     entries += [
