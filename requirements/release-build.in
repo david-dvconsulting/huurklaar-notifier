@@ -1,0 +1,3 @@
+# Bouwvereisten van het project zelf ([build-system] in pyproject.toml). Staan mee in de release-locks, zodat
+# `pip install --no-build-isolation` geen setuptools zonder hashcontrole van PyPI hoeft te halen.
+setuptools>=68

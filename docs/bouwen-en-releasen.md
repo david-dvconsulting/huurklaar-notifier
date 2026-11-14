@@ -33,6 +33,29 @@ Een foute release herstel je door een nieuwe, hogere versie uit te brengen. Gebr
 
 Onder **Actions > Release > Run workflow** kies je een tag-naam (bv. `v0.0.1-rc.1`). De workflow bouwt en test alles maar publiceert niets; de bestanden staan 7 dagen als artefact bij de run. Er wordt geen tag of release aangemaakt.
 
+## Vastgepinde afhankelijkheden in releases
+
+`pyproject.toml` bevat enkel ondergrenzen (`keyring>=25`, ...). Zonder lock bundelt elke release de nieuwste versie die PyPI op dat moment heeft: een gecompromitteerd of kapot pakket zou zo ongemerkt in een niet-ondertekende `.dmg` of `.exe` belanden, en een release is niet reproduceerbaar. Daarom installeert `release.yml` uit lockbestanden met exacte versies en hashes:
+
+- `requirements/release-mac.txt` (Python 3.13, `aarch64-apple-darwin`) en `requirements/release-windows.txt` (Python 3.13, `x86_64-pc-windows-msvc`), elk met de extra's van het platform plus `dev` (PyInstaller, ruff, pytest) en met alle indirecte afhankelijkheden.
+- `requirements/release-build.in` voegt `setuptools` toe, de build-backend van het project. Zo hoeft `pip install --no-build-isolation` niets zonder hash van PyPI te halen.
+- De workflow doet `pip install --require-hashes -r requirements/release-<platform>.txt` en daarna `pip install --no-deps --no-build-isolation -e .`. `scripts/build-windows.ps1` krijgt in de release `-SkipInstall`, anders installeert het script nog eens zonder hashes. Lokaal (zonder die schakelaar) werkt het script zoals voorheen.
+- Het Mac-lock is voor Apple Silicon omdat `macos-latest` dat is en `scripts/build-mac.sh` voor de eigen architectuur bouwt (geen universal2). Wil je later Intel of universal2 ondersteunen, dan hoort daar een eigen lock bij.
+- De **gewone CI (`ci.yml`) gebruikt bewust de ranges** uit `pyproject.toml`: zo merk je vroeg dat een nieuwe versie iets breekt, ook als de release nog op de oude versie staat.
+- Dependabot (`.github/dependabot.yml`, ecosystem `pip`, map `/requirements`, wekelijks) stelt updates van de locks voor als pull request. Omdat `ci.yml` de locks niet gebruikt, test `.github/workflows/release-locks.yml` ze apart: bij elke wijziging aan `requirements/**` of `pyproject.toml` installeert die workflow de lock op Mac en Windows zoals de release dat doet, en draait hij `pip check`, de tests en de self-test. Controleer in een Dependabot-PR dat de hashes mee bijgewerkt zijn; lukt dat niet, vernieuw het lock dan zelf (hieronder).
+- Niet gedekt: Inno Setup, dat de Windows-job via Chocolatey installeert.
+
+**Keuze: uv** (niet pip-tools). uv lost voor een ander doelplatform op, dus beide locks maak je vanaf één machine; pip-tools lost enkel op voor het platform waarop het draait, zodat de Windows-lock op Windows gemaakt zou moeten worden. De locks zelf zijn gewone requirements-bestanden: de workflows installeren ze met pip, zonder uv.
+
+Locks vernieuwen (vereist [uv](https://docs.astral.sh/uv/)):
+
+```bash
+scripts/lock-release.sh                              # alles naar de nieuwste toegelaten versies
+scripts/lock-release.sh --upgrade-package keyring    # of enkel één pakket
+```
+
+Het script draait `uv pip compile pyproject.toml requirements/release-build.in --extra <mac|windows> --extra dev --generate-hashes --python-version 3.13 --python-platform <aarch64-apple-darwin|x86_64-pc-windows-msvc> -o requirements/release-<platform>.txt`. Commit de gewijzigde lockbestanden en doe een proefrun (zie hierboven) vóór je een tag zet. Verander je de afhankelijkheden in `pyproject.toml`, vernieuw dan ook de locks.
+
 ## Bestandsnamen
 
 De release bevat bestanden met een vaste naam, zonder versie, zodat `https://github.com/david-dvconsulting/huurklaar-notifier/releases/latest/download/<naam>` altijd naar de nieuwste versie wijst:
@@ -52,7 +75,7 @@ Python 3.13 is nodig.
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install -e ".[mac,dev]"          # Windows: ".[windows,dev]"
+.venv/bin/pip install -e ".[mac,dev]"          # Windows: ".[windows,dev]"; dit gebruikt de ranges, niet de release-locks
 .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/pytest
 .venv/bin/python -m huurklaar_notifier --selftest
 scripts/build-mac.sh                            # .app en .dmg in dist/

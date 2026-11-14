@@ -18,6 +18,7 @@ Verificatie, dezelfde stappen als CI. Draai ze vóór je zegt dat iets klaar is:
 
 - **In een worktree** hergebruik je de `.venv` van de hoofdkopie. `pytest` test dankzij `pythonpath = ["src"]` al de eigen code. De selftest heeft `PYTHONPATH=src` nodig, anders draait de geïnstalleerde kopie uit de hoofdmap:
   `PYTHONPATH=src ../../huurklaar-notifier/.venv/bin/python -m huurklaar_notifier --selftest`
+- **Release-locks**: `release.yml` installeert enkel uit `requirements/release-mac.txt` en `requirements/release-windows.txt` (exacte versies met hashes, gemaakt met uv via `scripts/lock-release.sh`). Wijzig je de afhankelijkheden in `pyproject.toml`, draai dan dat script en commit de locks mee. `.github/workflows/release-locks.yml` test de locks op beide platformen; `ci.yml` gebruikt bewust de ranges.
 - **CI** (`.github/workflows/ci.yml`) draait lint, tests en selftest op `windows-latest` én `macos-latest`. `platform/windows.py` kan lokaal op een Mac niet draaien: houd Windows-logica testbaar in `platform/windows_*.py` en denk aan Windows-verschillen (bestandsvergrendeling, `os.replace` die faalt als een ander proces of een andere thread het doel vasthoudt).
 
 ## Architectuur

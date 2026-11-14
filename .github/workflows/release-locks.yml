@@ -1,0 +1,55 @@
+# Test de vastgepinde release-afhankelijkheden (requirements/release-*.txt) zodra ze of pyproject.toml wijzigen,
+# bv. in een Dependabot-PR. ci.yml gebruikt bewust de ranges uit pyproject.toml en test de locks dus niet.
+# Dezelfde installatie als release.yml (met hashcontrole), op beide platformen, zonder iets te bouwen.
+# Zie docs/bouwen-en-releasen.md.
+name: Release-locks
+
+on:
+  push:
+    branches: [main]
+    paths: ["requirements/**", "pyproject.toml", ".github/workflows/release-locks.yml"]
+  pull_request:
+    paths: ["requirements/**", "pyproject.toml", ".github/workflows/release-locks.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-locks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lock:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            lock: windows
+          - os: macos-latest
+            lock: mac
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      PYTHONUTF8: "1"
+    defaults:
+      run:
+        shell: bash # ook op Windows: bash stopt bij de eerste mislukte opdracht (-eo pipefail)
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      - name: Installeren uit de lock (met hashcontrole)
+        run: |
+          python -m pip install --require-hashes -r "requirements/release-${{ matrix.lock }}.txt"
+          python -m pip install --no-deps --no-build-isolation -e .
+      # Vangt een update op die niet past bij een ander vastgepind pakket.
+      - name: Afhankelijkheden consistent
+        run: python -m pip check
+      - name: Tests
+        run: python -m pytest -q
+      - name: Self-test
+        timeout-minutes: 3
+        run: python -m huurklaar_notifier --selftest
