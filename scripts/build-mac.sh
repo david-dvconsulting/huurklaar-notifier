@@ -35,6 +35,11 @@ done
 /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes array" "$PLIST"
 /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string huurklaar-meldingen" "$PLIST"
 
+# De build is enkel arm64 (Apple Silicon, KAN-289). macOS 11 is de eerste macOS op Apple Silicon, dus lager
+# kan een arm64-build nergens draaien; zo meldt macOS dat netjes in plaats van een kapotte app te tonen.
+/usr/libexec/PlistBuddy -c "Set :LSMinimumSystemVersion 11.0" "$PLIST" 2>/dev/null \
+  || /usr/libexec/PlistBuddy -c "Add :LSMinimumSystemVersion string 11.0" "$PLIST"
+
 # Ad hoc ('-') is gratis en nodig op Apple Silicon; er is geen Apple Developer-account.
 codesign --force --deep -s - "$APP"
 codesign --verify --deep --strict "$APP"

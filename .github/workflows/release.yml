@@ -99,6 +99,11 @@ jobs:
           [ "$GOT" = "$VERSION" ] || { echo "FOUT: app meldt $GOT, verwacht $VERSION"; exit 1; }
           PLIST_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
           [ "$PLIST_VERSION" = "$VERSION" ] || { echo "FOUT: Info.plist heeft $PLIST_VERSION"; exit 1; }
+          # Bewaakt de keuze "enkel Apple Silicon" (KAN-289). Wie universal2 of Intel invoert, past deze twee controles bewust aan.
+          ARCHS="$(lipo -archs "$BIN")"
+          [ "$ARCHS" = "arm64" ] || { echo "FOUT: de app bevat $ARCHS, verwacht enkel arm64"; exit 1; }
+          MIN_OS="$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$APP/Contents/Info.plist")"
+          [ "$MIN_OS" = "11.0" ] || { echo "FOUT: LSMinimumSystemVersion is $MIN_OS, verwacht 11.0"; exit 1; }
           "$BIN" --selftest
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

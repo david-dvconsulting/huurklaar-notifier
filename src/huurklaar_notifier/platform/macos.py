@@ -8,11 +8,12 @@ from __future__ import annotations
 
 import contextlib
 import logging
-import plistlib
 import queue
 import subprocess
 import sys
+import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import rumps
@@ -36,6 +37,13 @@ from ..core.poller import Poller, UpdatePoller
 from ..core.state import Toast
 from .keyring_store import KeyringSecretStore
 from .macos_links import LinkHandler
+from .macos_location import (
+    enable_launch_agent,
+    is_transient_location,
+    program_arguments,
+    repair_launch_agent,
+)
+from .settings_dialog import run_on_main, settings_texts
 
 log = logging.getLogger(__name__)
 
@@ -92,33 +100,48 @@ class MacNotifier:
 
 
 class LaunchAgentAutostart:
-    """'Start bij aanmelden' met een LaunchAgent in de map van de gebruiker (geen beheerdersrechten nodig)."""
+    """'Start bij aanmelden' met een LaunchAgent in de map van de gebruiker (geen beheerdersrechten nodig).
 
-    path = Path.home() / "Library/LaunchAgents" / f"{BUNDLE_ID}.plist"
+    Het pad is injecteerbaar voor tests. `on_transient` wordt aangeroepen als de gebruiker het aanzet vanaf
+    een tijdelijk pad (dmg, translocatie): dan schrijven we niets, want na een herstart bestaat dat pad niet.
+    """
+
+    default_path = Path.home() / "Library/LaunchAgents" / f"{BUNDLE_ID}.plist"
+
+    def __init__(self, path: Path | None = None, on_transient: Callable[[], None] | None = None) -> None:
+        self.path = path or self.default_path
+        self._on_transient = on_transient
 
     def is_enabled(self) -> bool:
         return self.path.exists()
+
+    def _program(self) -> list[str]:
+        return program_arguments(bool(getattr(sys, "frozen", False)), sys.executable)
 
     def set_enabled(self, enabled: bool) -> None:
         if not enabled:
             self.path.unlink(missing_ok=True)
             return
-        # Gebundeld: de uitvoerbare file in de .app; in ontwikkeling: de module met de huidige Python.
-        program = (
-            [sys.executable]
-            if getattr(sys, "frozen", False)
-            else [sys.executable, "-m", "huurklaar_notifier"]
+        written = enable_launch_agent(
+            self.path, BUNDLE_ID, self._program(), is_transient_location(sys.executable)
         )
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_bytes(
-            plistlib.dumps({"Label": BUNDLE_ID, "ProgramArguments": program, "RunAtLoad": True})
+        if not written and self._on_transient is not None:
+            self._on_transient()
+
+    def repair(self) -> bool:
+        """Zelfherstel bij de start; enkel gebundeld, want in ontwikkeling is `sys.executable` een Python."""
+        if not getattr(sys, "frozen", False):
+            return False
+        return repair_launch_agent(
+            self.path, BUNDLE_ID, self._program(), is_transient_location(sys.executable)
         )
 
 
 class MacPlatform:
     def __init__(self) -> None:
         self.secrets = KeyringSecretStore()
-        self.autostart = LaunchAgentAutostart()
+        self.language: Callable[[], str] = lambda: "nl"  # `run()` zet de taal van de controller
+        self.autostart = LaunchAgentAutostart(on_transient=self.warn_transient)
         self.notifier = MacNotifier()
 
     def data_dir(self) -> Path:
@@ -129,6 +152,21 @@ class MacPlatform:
 
     def open_url(self, url: str) -> None:
         open_url(url)
+
+    def running_from_transient_location(self) -> bool:
+        return bool(getattr(sys, "frozen", False)) and is_transient_location(sys.executable)
+
+    def warn_transient(self) -> None:
+        """`alert` blokkeert tot de gebruiker klikt: op een daemon-thread, zodat de hoofdthread (rumps-runloop)
+        en de menubalk niet vastlopen."""
+
+        def show() -> None:
+            try:
+                alert(self.language(), translate(self.language(), "location.move_to_applications"))
+            except Exception as e:  # een mislukte boodschap mag niets stoppen
+                log.warning("boodschap tonen mislukt: %s", type(e).__name__)
+
+        threading.Thread(target=show, name="location-warning", daemon=True).start()
 
 
 _DIALOG = """on run argv
@@ -186,18 +224,34 @@ def confirm(lang: str, message: str) -> bool:
     return subprocess.run(["osascript", "-e", script, *args], capture_output=True).returncode == 0
 
 
-def ask_settings(lang: str, base_url: str, key_saved: bool) -> tuple[str, str] | None:
-    """Twee opeenvolgende vragen: adres en sleutel (verborgen). `None` = geannuleerd."""
+def _ask_settings_osascript(lang: str, base_url: str, key_saved: bool) -> tuple[str, str] | None:
+    """Terugval: twee opeenvolgende osascript-vragen, adres en sleutel (verborgen). `None` = geannuleerd."""
     url = ask(lang, translate(lang, "dialog.url_prompt"), base_url)
     if url is None:
         return None
-    key_prompt = translate(lang, "dialog.key_prompt")
-    if key_saved:
-        key_prompt += "\n" + translate(lang, "dialog.key_keep")
-    key = ask(lang, key_prompt, "", hidden=True)
+    key = ask(lang, settings_texts(lang, key_saved).key_label, "", hidden=True)
     if key is None:
         return None
     return url, key
+
+
+def ask_settings(
+    lang: str, base_url: str, key_saved: bool, *, start_timeout: float = 30.0
+) -> tuple[str, str] | None:
+    """Eén venster met adres en sleutel, op de hoofdthread. Wordt aangeroepen vanaf de instellingenthread.
+    Lukt het venster niet, dan vallen we terug op osascript. `None` = geannuleerd."""
+    from PyObjCTools import AppHelper
+
+    from .macos_settings import show_settings
+
+    texts = settings_texts(lang, key_saved)
+    try:
+        return run_on_main(
+            lambda: show_settings(texts, base_url), AppHelper.callAfter, start_timeout=start_timeout
+        )
+    except Exception as e:  # enkel het type loggen: de invoer bevat een sleutel
+        log.warning("instellingenvenster mislukt, terugval op osascript: %s", type(e).__name__)
+        return _ask_settings_osascript(lang, base_url, key_saved)
 
 
 def forget_callbacks(items, registry=None) -> None:
@@ -306,7 +360,8 @@ class MenubarApp(rumps.App):
 
 
 class _MacUi:
-    """De Mac-kant van `AppUi`: dialogen via osascript, de rest delegeert naar de menubalk-app."""
+    """De Mac-kant van `AppUi`: instellingenvenster via AppKit, alerts via osascript; de rest delegeert naar
+    de menubalk-app."""
 
     def __init__(self, app: MenubarApp) -> None:
         self._app = app
@@ -331,5 +386,10 @@ class _MacUi:
 
 
 def run() -> None:
-    controller = Controller(MacPlatform())
+    platform = MacPlatform()
+    controller = Controller(platform)
+    platform.language = lambda: controller.language
+    platform.autostart.repair()  # een LaunchAgent met een verouderd pad (app verplaatst) terug goed zetten
+    if platform.running_from_transient_location():
+        platform.warn_transient()  # eenmaal per start
     MenubarApp(controller).run()
