@@ -2,8 +2,11 @@
 
 import pytest
 
+from huurklaar_notifier.core.defaults import DEFAULT_BASE_URL
 from huurklaar_notifier.core.menu import build_menu
 from huurklaar_notifier.testing.fake_server import EMPTY
+
+TEST_API = "https://gqncu23i4i.execute-api.eu-central-1.amazonaws.com"
 
 
 def _alle(entries):
@@ -42,9 +45,9 @@ def _zet_toestand(toestand, controller, server):
     ("toestand", "verwacht"),
     [
         ("attention", "Huurklaar openen"),
-        # Een lege lijst geeft geen link naar de app (app_url leidt die af uit de items), dus ook geen
-        # "Huurklaar openen" in het menu: dan zijn de instellingen het standaarditem.
-        ("idle", "Instellingen…"),
+        # Een lege lijst heeft geen link in de items, maar "Huurklaar openen" valt dan terug op de app van
+        # de omgeving (app_url_for). Zo opent een linksklik nooit de instellingen als de app te bereiken is.
+        ("idle", "Huurklaar openen"),
         ("niet_ingesteld", "Instellingen…"),
         ("auth_failed", "Instellingen…"),
         ("offline", "Instellingen…"),
@@ -70,6 +73,34 @@ def test_standaarditem_is_de_app_met_de_juiste_link(controller):
     (default,) = [e for e in build_menu(controller.state, "nl", "auto", False) if e.default]
     assert default.url == "https://app.example.test/"
     assert default.action is None
+
+
+@pytest.mark.parametrize(
+    ("base_url", "app"),
+    [
+        (DEFAULT_BASE_URL, "https://app.huurklaar.be/"),
+        (TEST_API, "https://app-dev.huurklaar.be/"),
+    ],
+)
+def test_huurklaar_openen_bij_lege_lijst_opent_de_app_van_de_omgeving(base_url, app, controller, server):
+    server.body = EMPTY
+    controller.poll()
+    (default,) = [
+        e for e in build_menu(controller.state, "nl", "auto", False, base_url=base_url) if e.default
+    ]
+    assert default.label == "Huurklaar openen"
+    assert default.url == app
+    assert default.action is None
+
+
+def test_link_uit_de_items_heeft_voorrang_op_app_url_for(controller):
+    # ATTENTION met SAMPLE: de link uit de items wijkt af van de app van de productie-omgeving,
+    # dus de test bewijst dat de items voorrang hebben op app_url_for.
+    controller.poll()
+    (default,) = [
+        e for e in build_menu(controller.state, "nl", "auto", False, base_url=DEFAULT_BASE_URL) if e.default
+    ]
+    assert default.url == "https://app.example.test/"
 
 
 def test_taalsubmenu_heeft_geen_standaarditem(controller):
