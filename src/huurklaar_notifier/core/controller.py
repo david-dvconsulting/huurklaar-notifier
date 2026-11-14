@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 from .. import __version__
 from ..platform.base import Platform
-from .api import ApiClient, AuthError, validate_base_url, validate_key
+from .api import ApiClient, AuthError, InvalidKeyError, validate_base_url, validate_key
 from .config import Config, ConfigStore
 from .i18n import resolve_language
 from .state import State, Toast
@@ -69,11 +69,11 @@ class Controller:
 
     # -- instellingen --------------------------------------------------------
     def configure(self, base_url: str, key: str | None) -> None:
-        """Bewaart adres en (optioneel nieuwe) sleutel. Werpt ValueError bij ongeldige invoer."""
+        """Bewaart adres en (optioneel nieuwe) sleutel. Werpt InvalidUrlError of InvalidKeyError (beide ValueError) bij ongeldige invoer."""
         url = validate_base_url(base_url)
         new_key = validate_key(key) if key else None
         if new_key is None and self.platform.secrets.get() is None:
-            raise ValueError("geen geldige meldingssleutel")
+            raise InvalidKeyError("geen geldige meldingssleutel")
         with self._lock:
             if new_key is not None:
                 self.platform.secrets.set(new_key)

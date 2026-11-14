@@ -29,6 +29,7 @@ Verificatie, dezelfde stappen als CI. Draai ze vóór je zegt dat iets klaar is:
   - `controller.py`: `Controller` met `_lock`, `poll`, `configure` en `set_language`.
   - `poller.py`: `Poller` en `UpdatePoller`, elk op een eigen thread.
   - `menu.py`: `build_menu` en `kind_label`.
+  - `app_actions.py`: `AppActions`, wat Mac en Windows delen: menuklikken afhandelen (`handle`), de resultatenqueue leeglezen (`drain`) en de instellingenflow (`settings`, met een lock zodat er maar één venster tegelijk open staat). Het platform levert enkel een `AppUi` met de dialoog, de alert, het herbouwen en het afsluiten. Kies een foutmelding op exceptietype (`InvalidUrlError`, `InvalidKeyError` uit `api.py`), nooit op de fouttekst.
   - `i18n.py`: catalogus in NL, FR en EN, met NL als bron.
   - `config.py`: `ConfigStore` schrijft atomair weg.
   - Verder: `updates.py`, `tls.py`, `version.py`, `selftest.py`.
