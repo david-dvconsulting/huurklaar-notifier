@@ -202,3 +202,34 @@ def test_zonder_items_geen_submenu_meldingen_voor(controller, server):
     controller.poll()
     entries = build_menu(controller.state, "nl", "auto", False)
     assert not any(e.label == "Meldingen voor" for e in entries)
+
+
+# -- dagelijkse herinnering (KAN-285) ---------------------------------------------------------------
+def test_vinkje_dagelijkse_herinnering_aan_en_uit(controller):
+    controller.poll()
+    aan = next(
+        e for e in build_menu(controller.state, "nl", "auto", False) if e.label == "Dagelijkse herinnering"
+    )
+    assert aan.action == "reminder" and aan.checked is True
+    uit = next(
+        e
+        for e in build_menu(controller.state, "nl", "auto", False, daily_reminder=False)
+        if e.label == "Dagelijkse herinnering"
+    )
+    assert uit.checked is False
+
+
+def test_herinnering_staat_na_meldingen_voor_en_voor_autostart(controller):
+    controller.poll()
+    namen = labels(build_menu(controller.state, "nl", "auto", False))
+    assert namen.index("Meldingen voor") + 1 == namen.index("Dagelijkse herinnering")
+    assert namen.index("Dagelijkse herinnering") + 1 == namen.index("Start bij aanmelden")
+
+
+def test_herinnering_staat_na_meldingen_pauzeren_zonder_submenu_soorten(controller, server):
+    server.body = EMPTY
+    controller.poll()
+    namen = labels(build_menu(controller.state, "nl", "auto", False))
+    assert "Meldingen voor" not in namen
+    assert namen.index("Meldingen pauzeren") + 1 == namen.index("Dagelijkse herinnering")
+    assert namen.index("Dagelijkse herinnering") + 1 == namen.index("Start bij aanmelden")

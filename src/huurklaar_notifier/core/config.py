@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import tempfile
 import threading
 from dataclasses import asdict, dataclass, field
@@ -30,9 +31,17 @@ class Config:
     # Meldingen per soort (KAN-284): soorten die de gebruiker uitgezet heeft. Items van zo'n soort krijgen
     # geen melding, maar blijven wel in het menu staan.
     muted_kinds: list[str] = field(default_factory=list)
+    # Dagelijkse herinnering (KAN-285): standaard aan, ook voor bestaande installaties zonder dit veld.
+    daily_reminder: bool = True
+    # De lokale datum (YYYY-MM-DD) van de laatste herinnering. Blijft na een herstart bewaard, anders volgt er
+    # een tweede herinnering op dezelfde dag.
+    last_reminder: str = ""
 
 
 MAX_MUTED_KINDS = 20  # ruim genoeg voor de bekende soorten; meer is een fout of misbruik van het bestand
+
+
+_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
 def _number(value: object) -> float:
@@ -44,6 +53,16 @@ def _kinds(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
     return list(dict.fromkeys(v for v in value if isinstance(v, str)))[:MAX_MUTED_KINDS]
+
+
+def _reminder_flag(value: object) -> bool:
+    """Enkel een echte bool telt; alles anders (ook een ontbrekend veld) geeft de standaard: aan."""
+    return value if isinstance(value, bool) else True
+
+
+def _date(value: object) -> str:
+    """Enkel een datum van de vorm YYYY-MM-DD; anders leeg."""
+    return value if isinstance(value, str) and _DATE.fullmatch(value) else ""
 
 
 class ConfigStore:
@@ -64,6 +83,8 @@ class ConfigStore:
                 update_version=str(raw.get("update_version") or ""),
                 paused_until=_number(raw.get("paused_until")),
                 muted_kinds=_kinds(raw.get("muted_kinds")),
+                daily_reminder=_reminder_flag(raw.get("daily_reminder")),
+                last_reminder=_date(raw.get("last_reminder")),
             )
         except (OSError, ValueError, AttributeError):
             return Config()

@@ -76,3 +76,29 @@ def test_muted_kinds_enkel_tekst_zonder_dubbelen_en_hoogstens_twintig(tmp_path):
     veel = [f"soort{i}" for i in range(25)]
     (tmp_path / "config.json").write_text(json.dumps({"muted_kinds": veel}), encoding="utf-8")
     assert ConfigStore(tmp_path).load().muted_kinds == veel[:20]
+
+
+# -- dagelijkse herinnering (KAN-285) ---------------------------------------------------------------
+def test_daily_reminder_ontbreekt_of_ongeldig_geeft_aan(tmp_path):
+    (tmp_path / "config.json").write_text("{}", encoding="utf-8")
+    assert ConfigStore(tmp_path).load().daily_reminder is True
+    for waarde in ("false", 0, 1, None, [], {"a": 1}):
+        (tmp_path / "config.json").write_text(json.dumps({"daily_reminder": waarde}), encoding="utf-8")
+        assert ConfigStore(tmp_path).load().daily_reminder is True, waarde
+
+
+def test_daily_reminder_false_blijft_false_en_wordt_bewaard(tmp_path):
+    (tmp_path / "config.json").write_text(json.dumps({"daily_reminder": False}), encoding="utf-8")
+    assert ConfigStore(tmp_path).load().daily_reminder is False
+    store = ConfigStore(tmp_path)
+    store.save(Config(daily_reminder=False, last_reminder="2026-11-14"))
+    geladen = store.load()
+    assert geladen.daily_reminder is False and geladen.last_reminder == "2026-11-14"
+
+
+def test_ongeldige_last_reminder_wordt_leeg(tmp_path):
+    for waarde in ("gisteren", "2026-1-4", "2026-11-14T10:00", " 2026-11-14", 20261114, None, True, []):
+        (tmp_path / "config.json").write_text(json.dumps({"last_reminder": waarde}), encoding="utf-8")
+        assert ConfigStore(tmp_path).load().last_reminder == "", waarde
+    (tmp_path / "config.json").write_text(json.dumps({"last_reminder": "2026-11-14"}), encoding="utf-8")
+    assert ConfigStore(tmp_path).load().last_reminder == "2026-11-14"

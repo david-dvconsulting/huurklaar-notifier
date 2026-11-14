@@ -16,6 +16,7 @@ from huurklaar_notifier.core.menu import (
     PAUSE_PREFIX,
     QUIT,
     REFRESH,
+    REMINDER,
     SETTINGS,
     Entry,
 )
@@ -314,3 +315,13 @@ def test_kind_zet_en_wist_de_soort_en_vraagt_herbouwen(tmp_path, ui):
     assert c.config.muted_kinds == ["complaint"] and ui.rebuilds == 1
     acties.handle(Entry("Klacht", action=KIND_PREFIX + "complaint"))
     assert c.config.muted_kinds == [] and ui.rebuilds == 2
+
+
+# -- dagelijkse herinnering (KAN-285) ----------------------------------------------------------------
+def test_reminder_wisselt_het_vinkje_en_vraagt_herbouwen(tmp_path, ui):
+    c = Controller(FakePlatform(tmp_path), clock=lambda: 1000.0)
+    acties = AppActions(c, ui)
+    acties.handle(Entry("Dagelijkse herinnering", action=REMINDER))
+    assert c.config.daily_reminder is False and ui.rebuilds == 1
+    acties.handle(Entry("Dagelijkse herinnering", action=REMINDER))
+    assert c.config.daily_reminder is True and ui.rebuilds == 2

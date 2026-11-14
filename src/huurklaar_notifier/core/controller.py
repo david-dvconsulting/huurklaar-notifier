@@ -32,12 +32,23 @@ class View:
     update: Release | None
     paused_until: float = 0.0  # enkel gezet als de pauze nu nog loopt
     muted_kinds: tuple[str, ...] = ()
+    daily_reminder: bool = True
+
+
+REMINDER_HOUR = 9  # lokale tijd van de dagelijkse herinnering (KAN-285), elke dag
 
 
 def tomorrow_morning(now: float, hour: int = 8) -> float:
     """08:00 lokale tijd op de dag na `now`. `mktime` met `tm_isdst=-1` houdt rekening met het zomeruur."""
     t = time.localtime(now)
     return time.mktime((t.tm_year, t.tm_mon, t.tm_mday + 1, hour, 0, 0, 0, 0, -1))
+
+
+def next_local_time(now: float, hour: int) -> float:
+    """Het eerstvolgende `hour`:00 lokale tijd strikt na `now`: vandaag als dat nog komt, anders morgen."""
+    t = time.localtime(now)
+    today = time.mktime((t.tm_year, t.tm_mon, t.tm_mday, hour, 0, 0, 0, 0, -1))
+    return today if today > now else tomorrow_morning(now, hour)
 
 
 class Controller:
@@ -116,6 +127,14 @@ class Controller:
                 return  # vol: niets gewijzigd, dus ook niets wegschrijven
             self.store.save(self.config)
 
+    # -- dagelijkse herinnering (KAN-285) ------------------------------------------
+    def toggle_reminder(self) -> None:
+        """Zet de dagelijkse herinnering aan of uit."""
+        with self._lock:
+            self.config.daily_reminder = not self.config.daily_reminder
+            self.store.save(self.config)
+        self.wake.set()  # de pollus moet de wachttijd (met of zonder 09:00-grens) opnieuw bepalen
+
     # -- instellingen --------------------------------------------------------
     def configure(self, base_url: str, key: str | None) -> None:
         """Bewaart adres en (optioneel nieuwe) sleutel. Werpt InvalidUrlError of InvalidKeyError (beide ValueError) bij ongeldige invoer."""
@@ -153,11 +172,17 @@ class Controller:
                 # Een geweigerde sleutel: de volgende poll leest de sleutel opnieuw uit de Keychain.
                 self._client_cache = None
             before = list(self.config.seen)
-            paused = self._clock() < self.config.paused_until
-            delivery = self.state.apply(result, self.config, self.language, hhmm, paused)
-            # `seen` verandert enkel als er een melding bij komt of verdwijnt. Alleen dan schrijven we weg,
-            # zodat een gewone poll niets naar de schijf stuurt.
-            if self.config.seen != before:
+            before_reminder = self.config.last_reminder
+            now = self._clock()
+            paused = now < self.config.paused_until
+            lt = time.localtime(now)
+            # De datum van vandaag, enkel als het uur van de herinnering bereikt is (anders `None`).
+            reminder_day = time.strftime("%Y-%m-%d", lt) if lt.tm_hour >= REMINDER_HOUR else None
+            delivery = self.state.apply(result, self.config, self.language, hhmm, paused, reminder_day)
+            # `seen` verandert enkel als er een melding bij komt of verdwijnt, `last_reminder` enkel eens per dag.
+            # Alleen dan schrijven we weg, zodat een gewone poll niets naar de schijf stuurt. Zonder wegschrijven
+            # van `last_reminder` komt er na een herstart een tweede herinnering op dezelfde dag.
+            if self.config.seen != before or self.config.last_reminder != before_reminder:
                 self.store.save(self.config)
             return delivery
 
@@ -171,6 +196,7 @@ class Controller:
                 self._newer_release(self.config.update_version),
                 self._active_pause(),
                 tuple(self.config.muted_kinds),
+                self.config.daily_reminder,
             )
 
     def next_delay(self) -> float | None:
@@ -184,6 +210,10 @@ class Controller:
                 # samenvatting op tijd komt en de statusregel verdwijnt. De marge van 1 s voorkomt dat
                 # `Event.wait` net te vroeg wakker wordt: die poll zou nog als gepauzeerd tellen.
                 delay = min(delay, self.config.paused_until - now + 1.0)
+            if self.config.daily_reminder:
+                # Ook het serverinterval (tot 6 u) mag de herinnering niet uren na 09:00 laten komen. Zelfde marge
+                # van 1 s als hierboven, zodat de poll na het wakker worden het uur zeker bereikt heeft.
+                delay = min(delay, next_local_time(now, REMINDER_HOUR) - now + 1.0)
             return delay
 
     def _client(self) -> ApiClient | None:

@@ -88,13 +88,22 @@ class State:
             return e
 
     def apply(
-        self, result: FetchResult, config: Config, lang: str, now_hhmm: str, paused: bool = False
+        self,
+        result: FetchResult,
+        config: Config,
+        lang: str,
+        now_hhmm: str,
+        paused: bool = False,
+        reminder_day: str | None = None,
     ) -> Delivery:
         """Verwerkt het resultaat van `fetch`: werkt de toestand bij en geeft de meldingen die nu getoond of ingetrokken moeten worden.
 
         Tijdens een pauze (`paused`, bepaald door de controller met zijn klok) komen er geen meldingen: `seen`
         wordt wel bijgewerkt en `missed` telt wat er gemist is. De eerste poll erna meldt dat in één samenvatting.
         Intrekken van afgewerkte meldingen gaat tijdens een pauze gewoon door.
+
+        `reminder_day` is de lokale datum van vandaag, en enkel gezet als het uur van de dagelijkse herinnering
+        bereikt is (de controller bepaalt dat met zijn klok). Zie `_daily_reminder`.
         """
         if isinstance(result, NotConfigured):
             self.status, self.snapshot = Status.NOT_CONFIGURED, None
@@ -109,6 +118,8 @@ class State:
         self.snapshot, self.status, self.updated_at = result, status_for(result), now_hhmm
         before = list(config.seen)
         toasts = self._new_toasts(result, config, lang, paused)
+        if reminder_day is not None and not paused:
+            toasts += self._daily_reminder(result, config, lang, reminder_day)
         # Een id die verdwenen is uit `seen` is afgewerkt. Bij een afgekapte lijst weten we dat niet zeker:
         # het item kan gewoon buiten de lijst vallen.
         after = set(config.seen)
@@ -116,10 +127,16 @@ class State:
         return Delivery(toasts, withdraw)
 
     def poll(
-        self, client: ApiClient | None, config: Config, lang: str, now_hhmm: str, paused: bool = False
+        self,
+        client: ApiClient | None,
+        config: Config,
+        lang: str,
+        now_hhmm: str,
+        paused: bool = False,
+        reminder_day: str | None = None,
     ) -> Delivery:
         """Doet één poll: `fetch` en daarna `apply`."""
-        return self.apply(self.fetch(client), config, lang, now_hhmm, paused)
+        return self.apply(self.fetch(client), config, lang, now_hhmm, paused, reminder_day)
 
     def next_delay(self) -> float | None:
         """Seconden tot de volgende poll; `None` = wachten op nieuwe instellingen (geen nutteloos bellen)."""
@@ -131,6 +148,37 @@ class State:
         assert self.snapshot is not None
         # De server bepaalt het interval; wij voegen willekeur toe zodat gebruikers niet gelijk lopen.
         return max(self.snapshot.poll_after_seconds, MIN_POLL) * self._rng(0.8, 1.2)
+
+    def _daily_reminder(self, snap: Snapshot, config: Config, lang: str, today: str) -> list[Toast]:
+        """De dagelijkse herinnering (KAN-285): wat te laat is en wat vandaag vervalt, hoogstens één keer per dag.
+
+        Is de herinnering aan, staat de melding aan (`snap.enabled`) en is ze vandaag nog niet beoordeeld, dan
+        beoordelen we ze nu en zetten `config.last_reminder` op vandaag, ook als er niets te melden valt. Het
+        is één vast moment per dag: zonder die regel zou een taak die om 14:00 voor vandaag wordt aangemaakt
+        meteen een 'herinnering' geven. De controller schrijft de config weg als `last_reminder` veranderde.
+        """
+        if not config.daily_reminder or not snap.enabled or config.last_reminder == today:
+            return []
+        config.last_reminder = today
+        muted = config.muted_kinds
+        # Zonder uitgezette soorten is de servertelling volledig, ook buiten de hoogstens 50 items in de lijst.
+        # Een uitgezette soort geeft geen melding meer (KAN-284), dus dan tellen we enkel uit de lijst.
+        overdue = sum(1 for i in snap.items if i.overdue and i.kind not in muted) if muted else snap.overdue
+        # Uit de lijst (hoogstens 50 items): bij een afgekapte lijst kan dit te laag zijn.
+        due_today = sum(
+            1 for i in snap.items if i.due_date == today and not i.overdue and i.kind not in muted
+        )
+        if not overdue and not due_today:
+            return []
+        return [
+            Toast(
+                _reminder_title(lang, overdue, due_today),
+                translate(lang, "toast.reminder_body"),
+                app_url(list(snap.items)),
+                "reminder",
+                "summary",
+            )
+        ]
 
     def _new_toasts(self, snap: Snapshot, config: Config, lang: str, paused: bool = False) -> list[Toast]:
         """Geeft de meldingen die nu nieuw zijn en werkt `config.seen` bij.
@@ -188,6 +236,18 @@ class State:
         else:
             toasts += [item_toast(i, lang) for i in fresh]
         return toasts
+
+
+def _reminder_title(lang: str, overdue: int, today: int) -> str:
+    """Titel van de herinnering. Geen meervoudsregels in de catalogus: één heeft een eigen `_one`-sleutel."""
+    parts = []
+    if overdue:
+        parts.append(translate(lang, "toast.reminder_overdue", n=overdue))
+    if today:
+        parts.append(
+            translate(lang, "toast.reminder_today_one" if today == 1 else "toast.reminder_today", n=today)
+        )
+    return " · ".join(parts)
 
 
 def app_url(items: list[Item]) -> str | None:

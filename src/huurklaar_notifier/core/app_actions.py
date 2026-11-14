@@ -23,6 +23,7 @@ from .menu import (
     PAUSE_TOMORROW,
     QUIT,
     REFRESH,
+    REMINDER,
     SETTINGS,
     Entry,
 )
@@ -90,6 +91,9 @@ class AppActions:
             self.ui.request_rebuild()
         elif action and action.startswith(KIND_PREFIX):
             self.c.toggle_kind(action[len(KIND_PREFIX) :])
+            self.ui.request_rebuild()
+        elif action == REMINDER:
+            self.c.toggle_reminder()
             self.ui.request_rebuild()
         elif action == QUIT:
             self.ui.quit()

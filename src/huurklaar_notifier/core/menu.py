@@ -22,6 +22,7 @@ LANGUAGE_PREFIX = "language:"
 PAUSE_PREFIX = "pause:"
 PAUSE_HOUR, PAUSE_TOMORROW, PAUSE_OFF = "hour", "tomorrow", "off"
 KIND_PREFIX = "kind:"
+REMINDER = "reminder"
 # Vaste volgorde van het submenu "Meldingen voor". Een soort die de server nieuw stuurt, staat hier niet en
 # krijgt geen vinkje: zonder naam zou het gewoon 'Melding' heten en de gebruiker niets zeggen.
 KNOWN_KINDS = ("task", "complaint", "report", "tenantTask", "myReport", "invoiceAttention")
@@ -101,6 +102,7 @@ def build_menu(
     update: Release | None = None,
     paused_until: float = 0.0,
     muted_kinds: tuple[str, ...] = (),
+    daily_reminder: bool = True,
 ) -> list[Entry]:
     t = lambda key, **p: translate(lang, key, **p)  # noqa: E731
     entries: list[Entry] = [Entry(status_line(state, lang, paused_until), enabled=False)]
@@ -150,6 +152,7 @@ def build_menu(
     if kinds:
         entries.append(Entry(t("menu.kinds"), children=kinds))
     entries += [
+        Entry(t("menu.reminder"), action=REMINDER, checked=daily_reminder),
         Entry(t("menu.autostart"), action=AUTOSTART, checked=autostart),
         SEPARATOR,
         Entry(t("menu.about", version=__version__), enabled=False),

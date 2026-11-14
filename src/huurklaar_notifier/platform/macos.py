@@ -256,6 +256,7 @@ class MenubarApp(rumps.App):
             v.update,
             v.paused_until,
             muted_kinds=v.muted_kinds,
+            daily_reminder=v.daily_reminder,
         )
         title = title_for(v.state)
         if not self._menu_cache.changed(entries, title):
