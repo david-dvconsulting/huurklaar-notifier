@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Hashable, Iterable
 from dataclasses import dataclass
 
@@ -18,6 +19,8 @@ MAX_LABEL = 70
 # Acties die een platform afhandelt
 REFRESH, SETTINGS, AUTOSTART, QUIT = "refresh", "settings", "autostart", "quit"
 LANGUAGE_PREFIX = "language:"
+PAUSE_PREFIX = "pause:"
+PAUSE_HOUR, PAUSE_TOMORROW, PAUSE_OFF = "hour", "tomorrow", "off"
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,7 +50,17 @@ def title_for(state: State) -> str:
     return ""
 
 
-def status_line(state: State, lang: str) -> str:
+def status_line(state: State, lang: str, paused_until: float = 0.0) -> str:
+    """De statusregel; tijdens een pauze (`paused_until` > 0) vooraan 'Gepauzeerd tot HH:MM'."""
+    line = _status_text(state, lang)
+    if paused_until > 0:
+        until = time.strftime("%H:%M", time.localtime(paused_until))
+        pause = translate(lang, "status.paused", time=until)
+        return pause if state.status is Status.IDLE else f"{pause} · {line}"
+    return line
+
+
+def _status_text(state: State, lang: str) -> str:
     if state.status is Status.ATTENTION and state.snapshot:
         text = translate(lang, "status.tasks", n=state.snapshot.total)
         if state.snapshot.overdue:
@@ -63,10 +76,15 @@ def kind_label(lang: str, kind: str) -> str:
 
 
 def build_menu(
-    state: State, lang: str, language_setting: str, autostart: bool, update: Release | None = None
+    state: State,
+    lang: str,
+    language_setting: str,
+    autostart: bool,
+    update: Release | None = None,
+    paused_until: float = 0.0,
 ) -> list[Entry]:
     t = lambda key, **p: translate(lang, key, **p)  # noqa: E731
-    entries: list[Entry] = [Entry(status_line(state, lang), enabled=False)]
+    entries: list[Entry] = [Entry(status_line(state, lang, paused_until), enabled=False)]
     if update is not None:  # de klik opent de releasepagina; automatisch vervangen is een latere stap
         entries.append(Entry(t("menu.update", version=update.version), url=update.url))
     if state.status is Status.OFFLINE and state.updated_at:
@@ -96,11 +114,18 @@ def build_menu(
         )
         for code in ("auto", *LANGUAGES)
     )
+    pause = [
+        Entry(t("menu.pause_hour"), action=PAUSE_PREFIX + PAUSE_HOUR),
+        Entry(t("menu.pause_tomorrow"), action=PAUSE_PREFIX + PAUSE_TOMORROW),
+    ]
+    if paused_until > 0:
+        pause.append(Entry(t("menu.pause_off"), action=PAUSE_PREFIX + PAUSE_OFF))
     entries += [
         SEPARATOR,
         Entry(t("menu.refresh"), action=REFRESH),
         Entry(t("menu.settings"), action=SETTINGS),
         Entry(t("menu.language"), children=languages),
+        Entry(t("menu.pause"), children=tuple(pause)),
         Entry(t("menu.autostart"), action=AUTOSTART, checked=autostart),
         SEPARATOR,
         Entry(t("menu.about", version=__version__), enabled=False),

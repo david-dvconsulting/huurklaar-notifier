@@ -30,6 +30,13 @@ class View:
     language: str
     language_setting: str
     update: Release | None
+    paused_until: float = 0.0  # enkel gezet als de pauze nu nog loopt
+
+
+def tomorrow_morning(now: float, hour: int = 8) -> float:
+    """08:00 lokale tijd op de dag na `now`. `mktime` met `tm_isdst=-1` houdt rekening met het zomeruur."""
+    t = time.localtime(now)
+    return time.mktime((t.tm_year, t.tm_mon, t.tm_mday + 1, hour, 0, 0, 0, 0, -1))
 
 
 class Controller:
@@ -67,6 +74,32 @@ class Controller:
             self.config.language = setting
             self.store.save(self.config)
 
+    # -- pauzeren (KAN-283) ----------------------------------------------------
+    def _active_pause(self) -> float:
+        """Het einde van de lopende pauze, of 0.0. Aanroepen onder `_lock`."""
+        until = self.config.paused_until
+        return until if self._clock() < until else 0.0
+
+    def set_pause(self, until: float) -> None:
+        """Pauzeert de meldingen tot `until` (epochseconden); 0.0 heft de pauze op."""
+        with self._lock:
+            self.config.paused_until = until
+            self.store.save(self.config)
+        # De pollus slaapt misschien nog op een lang interval: laat ze de wachttijd opnieuw bepalen.
+        self.wake.set()
+
+    def pause_for_hour(self) -> None:
+        self.set_pause(self._clock() + 3600)
+
+    def pause_until_tomorrow(self) -> None:
+        """Pauzeert tot 08:00 lokale tijd op de volgende kalenderdag."""
+        self.set_pause(tomorrow_morning(self._clock()))
+
+    def resume(self) -> None:
+        """Heft de pauze meteen op en wekt de poller, zodat een eventuele samenvatting snel komt."""
+        self.set_pause(0.0)
+        self.wake.set()
+
     # -- instellingen --------------------------------------------------------
     def configure(self, base_url: str, key: str | None) -> None:
         """Bewaart adres en (optioneel nieuwe) sleutel. Werpt InvalidUrlError of InvalidKeyError (beide ValueError) bij ongeldige invoer."""
@@ -79,6 +112,7 @@ class Controller:
                 self.platform.secrets.set(new_key)
             if new_key is not None or url != self.config.base_url:
                 self.config.seen = []  # ander account of adres: alles is weer nieuw
+                self.state.missed = 0  # de gemiste meldingen horen bij het vorige account
             self.config.base_url = url
             self._generation += 1  # een lopende poll met de oude client moet haar resultaat weggooien
             self._client_cache = None  # de volgende poll maakt een client met de nieuwe instellingen
@@ -103,7 +137,8 @@ class Controller:
                 # Een geweigerde sleutel: de volgende poll leest de sleutel opnieuw uit de Keychain.
                 self._client_cache = None
             before = list(self.config.seen)
-            delivery = self.state.apply(result, self.config, self.language, hhmm)
+            paused = self._clock() < self.config.paused_until
+            delivery = self.state.apply(result, self.config, self.language, hhmm, paused)
             # `seen` verandert enkel als er een melding bij komt of verdwijnt. Alleen dan schrijven we weg,
             # zodat een gewone poll niets naar de schijf stuurt.
             if self.config.seen != before:
@@ -118,11 +153,21 @@ class Controller:
                 self.language,
                 self.config.language,
                 self._newer_release(self.config.update_version),
+                self._active_pause(),
             )
 
     def next_delay(self) -> float | None:
         with self._lock:
-            return self.state.next_delay()
+            delay = self.state.next_delay()
+            if delay is None:
+                return None  # niet ingesteld of sleutel geweigerd: een pauze verandert daar niets aan
+            now = self._clock()
+            if now < self.config.paused_until:
+                # Het serverinterval kan uren duren (tot 6 u). Poll daarom vlak na het einde van de pauze, zodat de
+                # samenvatting op tijd komt en de statusregel verdwijnt. De marge van 1 s voorkomt dat
+                # `Event.wait` net te vroeg wakker wordt: die poll zou nog als gepauzeerd tellen.
+                delay = min(delay, self.config.paused_until - now + 1.0)
+            return delay
 
     def _client(self) -> ApiClient | None:
         """Geeft de bewaarde client als het adres nog klopt, anders maakt er een met de sleutel uit de Keychain."""

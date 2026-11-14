@@ -68,6 +68,9 @@ class State:
         self.snapshot: Snapshot | None = None  # laatste geslaagde antwoord, ook getoond bij 'geen verbinding'
         self.failures = 0
         self.updated_at: str | None = None  # HH:MM van het laatste geslaagde antwoord
+        # Nieuwe meldingen die tijdens een pauze gemist zijn. Enkel in het geheugen: na een herstart is `seen`
+        # al bijgewerkt en weten we niet meer wat er gemist is.
+        self.missed = 0
         self._rng = rng
 
     @staticmethod
@@ -84,8 +87,15 @@ class State:
         except (AuthError, NetworkError, ProtocolError, ApiError) as e:
             return e
 
-    def apply(self, result: FetchResult, config: Config, lang: str, now_hhmm: str) -> Delivery:
-        """Verwerkt het resultaat van `fetch`: werkt de toestand bij en geeft de meldingen die nu getoond of ingetrokken moeten worden."""
+    def apply(
+        self, result: FetchResult, config: Config, lang: str, now_hhmm: str, paused: bool = False
+    ) -> Delivery:
+        """Verwerkt het resultaat van `fetch`: werkt de toestand bij en geeft de meldingen die nu getoond of ingetrokken moeten worden.
+
+        Tijdens een pauze (`paused`, bepaald door de controller met zijn klok) komen er geen meldingen: `seen`
+        wordt wel bijgewerkt en `missed` telt wat er gemist is. De eerste poll erna meldt dat in één samenvatting.
+        Intrekken van afgewerkte meldingen gaat tijdens een pauze gewoon door.
+        """
         if isinstance(result, NotConfigured):
             self.status, self.snapshot = Status.NOT_CONFIGURED, None
             return Delivery()
@@ -98,16 +108,18 @@ class State:
         self.failures = 0
         self.snapshot, self.status, self.updated_at = result, status_for(result), now_hhmm
         before = list(config.seen)
-        toasts = self._new_toasts(result, config, lang)
+        toasts = self._new_toasts(result, config, lang, paused)
         # Een id die verdwenen is uit `seen` is afgewerkt. Bij een afgekapte lijst weten we dat niet zeker:
         # het item kan gewoon buiten de lijst vallen.
         after = set(config.seen)
         withdraw = [] if result.truncated else list(dict.fromkeys(s for s in before if s not in after))
         return Delivery(toasts, withdraw)
 
-    def poll(self, client: ApiClient | None, config: Config, lang: str, now_hhmm: str) -> Delivery:
+    def poll(
+        self, client: ApiClient | None, config: Config, lang: str, now_hhmm: str, paused: bool = False
+    ) -> Delivery:
         """Doet één poll: `fetch` en daarna `apply`."""
-        return self.apply(self.fetch(client), config, lang, now_hhmm)
+        return self.apply(self.fetch(client), config, lang, now_hhmm, paused)
 
     def next_delay(self) -> float | None:
         """Seconden tot de volgende poll; `None` = wachten op nieuwe instellingen (geen nutteloos bellen)."""
@@ -120,7 +132,7 @@ class State:
         # De server bepaalt het interval; wij voegen willekeur toe zodat gebruikers niet gelijk lopen.
         return max(self.snapshot.poll_after_seconds, MIN_POLL) * self._rng(0.8, 1.2)
 
-    def _new_toasts(self, snap: Snapshot, config: Config, lang: str) -> list[Toast]:
+    def _new_toasts(self, snap: Snapshot, config: Config, lang: str, paused: bool = False) -> list[Toast]:
         """Geeft de meldingen die nu nieuw zijn en werkt `config.seen` bij.
 
         Niet afgekapt: alleen ids die nu nog in de lijst staan blijven bewaard, dus een item dat
@@ -138,10 +150,30 @@ class State:
             config.seen = list(dict.fromkeys(current + kept))[:MAX_SEEN]
         else:
             config.seen = current[:MAX_SEEN]
-        if not snap.enabled or not fresh:
+        if not snap.enabled:
             return []
+        if paused:
+            self.missed += len(fresh)
+            return []
+        toasts: list[Toast] = []
+        if self.missed > 0:  # de pauze is voorbij: eenmalig melden wat er intussen binnenkwam
+            toasts.append(
+                Toast(
+                    # Geen meervoudsregels in de catalogus: één gemiste melding krijgt een eigen tekst.
+                    translate(
+                        lang,
+                        "toast.paused_summary_one" if self.missed == 1 else "toast.paused_summary",
+                        n=self.missed,
+                    ),
+                    translate(lang, "toast.summary_body"),
+                    app_url(list(snap.items)),
+                    "paused",
+                    "summary",
+                )
+            )
+            self.missed = 0
         if len(fresh) > MAX_TOASTS:
-            return [
+            toasts.append(
                 Toast(
                     translate(lang, "toast.summary", n=len(fresh)),
                     summary_body(fresh, lang),
@@ -149,8 +181,10 @@ class State:
                     "summary",
                     "summary",
                 )
-            ]
-        return [item_toast(i, lang) for i in fresh]
+            )
+        else:
+            toasts += [item_toast(i, lang) for i in fresh]
+        return toasts
 
 
 def app_url(items: list[Item]) -> str | None:

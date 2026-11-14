@@ -116,3 +116,42 @@ def test_twee_polls_met_hetzelfde_antwoord_bouwen_het_menu_een_keer(controller):
         if cache.changed(entries, title_for(controller.state)):
             builds += 1
     assert builds == 1
+
+
+def _pauzemenu(entries):
+    return next(e for e in entries if e.label == "Meldingen pauzeren")
+
+
+def test_pauzemenu_zonder_pauze_heeft_geen_hervatten(controller):
+    sub = _pauzemenu(build_menu(controller.state, "nl", "auto", False)).children
+    assert [(e.label, e.action) for e in sub] == [
+        ("1 uur", "pause:hour"),
+        ("Tot morgen 8:00", "pause:tomorrow"),
+    ]
+
+
+def test_pauzemenu_tijdens_pauze_heeft_hervatten_en_statusregel(controller):
+    import time
+
+    tot = time.mktime((2026, 11, 14, 15, 30, 0, 0, 0, -1))
+    entries = build_menu(controller.state, "nl", "auto", False, paused_until=tot)
+    assert [e.action for e in _pauzemenu(entries).children] == ["pause:hour", "pause:tomorrow", "pause:off"]
+    assert entries[0].label == "Gepauzeerd tot 15:30 · Niet aangemeld"
+
+
+def test_statusregel_tijdens_pauze_behoudt_het_aantal_taken(controller):
+    import time
+
+    from huurklaar_notifier.core.menu import status_line
+
+    controller.poll()
+    tot = time.mktime((2026, 11, 14, 15, 30, 0, 0, 0, -1))
+    assert status_line(controller.state, "nl", tot) == "Gepauzeerd tot 15:30 · 2 open · 1 te laat"
+    assert status_line(controller.state, "en", tot).startswith("Paused until 15:30")
+
+
+def test_statusregel_zonder_pauze_is_ongewijzigd(controller):
+    controller.poll()
+    assert (
+        build_menu(controller.state, "nl", "auto", False, paused_until=0.0)[0].label == "2 open · 1 te laat"
+    )

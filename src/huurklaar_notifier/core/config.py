@@ -24,6 +24,9 @@ class Config:
     # nieuwste gevonden versie, zodat de menuregel ook zonder netwerk blijft staan.
     update_next_check: float = 0.0
     update_version: str = ""
+    # Meldingen pauzeren (KAN-283): tot wanneer er geen meldingen komen (epochseconden, 0 = niet gepauzeerd).
+    # Blijft na een herstart bewaard, anders zou afsluiten de pauze stilletjes opheffen.
+    paused_until: float = 0.0
 
 
 def _number(value: object) -> float:
@@ -46,6 +49,7 @@ class ConfigStore:
                 seen=[str(s) for s in raw.get("seen", [])][:500],
                 update_next_check=_number(raw.get("update_next_check")),
                 update_version=str(raw.get("update_version") or ""),
+                paused_until=_number(raw.get("paused_until")),
             )
         except (OSError, ValueError, AttributeError):
             return Config()

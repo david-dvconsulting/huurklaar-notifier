@@ -37,3 +37,17 @@ def test_na_afloop_blijven_er_geen_tmp_bestanden_over(tmp_path):
     store = ConfigStore(tmp_path)
     assert _schrijf_gelijktijdig(store) == []
     assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_paused_until_wordt_bewaard_en_geladen(tmp_path):
+    store = ConfigStore(tmp_path)
+    store.save(Config(paused_until=1234.5))
+    assert store.load().paused_until == 1234.5
+
+
+def test_ongeldige_paused_until_geeft_nul(tmp_path):
+    for waarde in ("morgen", True, None, [1], {"a": 1}):
+        (tmp_path / "config.json").write_text(json.dumps({"paused_until": waarde}), encoding="utf-8")
+        assert ConfigStore(tmp_path).load().paused_until == 0.0
+    (tmp_path / "config.json").write_text("{}", encoding="utf-8")
+    assert ConfigStore(tmp_path).load().paused_until == 0.0

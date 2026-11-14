@@ -7,9 +7,17 @@ import pytest
 
 from huurklaar_notifier.core.api import InvalidKeyError, InvalidUrlError
 from huurklaar_notifier.core.app_actions import AppActions
-from huurklaar_notifier.core.controller import Controller
+from huurklaar_notifier.core.controller import Controller, tomorrow_morning
 from huurklaar_notifier.core.i18n import translate
-from huurklaar_notifier.core.menu import AUTOSTART, LANGUAGE_PREFIX, QUIT, REFRESH, SETTINGS, Entry
+from huurklaar_notifier.core.menu import (
+    AUTOSTART,
+    LANGUAGE_PREFIX,
+    PAUSE_PREFIX,
+    QUIT,
+    REFRESH,
+    SETTINGS,
+    Entry,
+)
 from huurklaar_notifier.core.state import Delivery, Toast
 from huurklaar_notifier.testing.fake_server import FAKE_KEY
 from huurklaar_notifier.testing.fakes import FakePlatform, RecordingNotifier
@@ -265,3 +273,33 @@ def test_lock_wordt_vrijgegeven_na_een_fout_in_de_dialoog(acties, ui):
     ui.ask_settings = NepUi.ask_settings.__get__(ui)  # type: ignore[method-assign]
     acties.settings()
     assert len(ui.asked) == 1
+
+
+# -- pauzeren (KAN-283) ---------------------------------------------------------------------------
+def test_pauze_uur_zet_de_pauze_en_vraagt_herbouwen(tmp_path, ui):
+    c = Controller(FakePlatform(tmp_path), clock=lambda: 1000.0)
+    AppActions(c, ui).handle(Entry("1 uur", action=PAUSE_PREFIX + "hour"))
+    assert c.config.paused_until == 4600.0
+    assert ui.rebuilds == 1
+
+
+def test_pauze_tot_morgen_zet_de_pauze_op_tomorrow_morning(tmp_path, ui):
+    nu = 1_700_000_000.0
+    c = Controller(FakePlatform(tmp_path), clock=lambda: nu)
+    AppActions(c, ui).handle(Entry("Morgen", action=PAUSE_PREFIX + "tomorrow"))
+    assert c.config.paused_until == tomorrow_morning(nu)
+    assert ui.rebuilds == 1
+
+
+def test_pauze_uit_hervat_en_wekt_de_poller(tmp_path, ui):
+    c = Controller(FakePlatform(tmp_path), clock=lambda: 1000.0)
+    c.set_pause(5000.0)
+    AppActions(c, ui).handle(Entry("Hervatten", action=PAUSE_PREFIX + "off"))
+    assert c.config.paused_until == 0.0 and c.wake.is_set()
+    assert ui.rebuilds == 1
+
+
+def test_onbekende_pauzekeuze_doet_niets(tmp_path, ui):
+    c = Controller(FakePlatform(tmp_path), clock=lambda: 1000.0)
+    AppActions(c, ui).handle(Entry("?", action=PAUSE_PREFIX + "week"))
+    assert c.config.paused_until == 0.0 and ui.rebuilds == 0

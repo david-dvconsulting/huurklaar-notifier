@@ -105,10 +105,15 @@ class TrayApp:
         c = self.c
         v = c.view()  # één korte lock-sectie; daarna werken we op de kopie
         entries = build_menu(
-            v.state, v.language, v.language_setting, c.platform.autostart.is_enabled(), v.update
+            v.state,
+            v.language,
+            v.language_setting,
+            c.platform.autostart.is_enabled(),
+            v.update,
+            v.paused_until,
         )
         badge = badge_for(v.state)
-        title = tooltip(status_line(v.state, v.language), APP_NAME)
+        title = tooltip(status_line(v.state, v.language, v.paused_until), APP_NAME)
         if not self._menu_cache.changed(entries, (badge, title)):
             return  # niets veranderd: icoon en menu niet opnieuw bouwen
         try:

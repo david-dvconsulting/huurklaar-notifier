@@ -13,7 +13,18 @@ from typing import Protocol
 from .api import InvalidKeyError, InvalidUrlError
 from .controller import Controller
 from .i18n import translate
-from .menu import AUTOSTART, LANGUAGE_PREFIX, QUIT, REFRESH, SETTINGS, Entry
+from .menu import (
+    AUTOSTART,
+    LANGUAGE_PREFIX,
+    PAUSE_HOUR,
+    PAUSE_OFF,
+    PAUSE_PREFIX,
+    PAUSE_TOMORROW,
+    QUIT,
+    REFRESH,
+    SETTINGS,
+    Entry,
+)
 from .state import Delivery, Toast
 
 
@@ -64,6 +75,17 @@ class AppActions:
             self.ui.request_rebuild()
         elif action and action.startswith(LANGUAGE_PREFIX):
             self.c.set_language(action[len(LANGUAGE_PREFIX) :])
+            self.ui.request_rebuild()
+        elif action and action.startswith(PAUSE_PREFIX):
+            choice = action[len(PAUSE_PREFIX) :]
+            if choice == PAUSE_HOUR:
+                self.c.pause_for_hour()
+            elif choice == PAUSE_TOMORROW:
+                self.c.pause_until_tomorrow()
+            elif choice == PAUSE_OFF:
+                self.c.resume()
+            else:
+                return  # onbekende keuze (nieuwere menu-versie): niets doen
             self.ui.request_rebuild()
         elif action == QUIT:
             self.ui.quit()
