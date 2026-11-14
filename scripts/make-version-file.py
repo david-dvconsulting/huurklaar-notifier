@@ -22,6 +22,7 @@ out.write_text(
       StringStruct('FileDescription', 'Huurklaar Meldingen'),
       StringStruct('FileVersion', '{version}'),
       StringStruct('InternalName', 'huurklaar-meldingen'),
+      StringStruct('LegalCopyright', 'Copyright 2026 DV Consulting'),
       StringStruct('OriginalFilename', 'Huurklaar Meldingen.exe'),
       StringStruct('ProductName', 'Huurklaar Meldingen'),
       StringStruct('ProductVersion', '{version}')])]),

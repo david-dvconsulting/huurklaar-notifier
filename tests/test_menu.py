@@ -684,3 +684,16 @@ def test_sleutel_hulpitem_opent_de_app_van_de_omgeving(status, base_url, app):
     (entry,) = [e for e in _menu(status, base_url) if e.label == translate("nl", "menu.get_key")]
     assert entry.url == app + "/profile/notifications"
     assert entry.action is None and entry.enabled
+
+
+def test_over_item_opent_de_projectpagina_en_toont_de_versie():
+    from huurklaar_notifier._version import __version__
+    from huurklaar_notifier.core.defaults import PROJECT_URL
+
+    ok = State()
+    ok.status = Status.ATTENTION
+    for state in (State(), ok):
+        over = [e for e in build_menu(state, "nl", "auto", False, today=VANDAAG) if e.url == PROJECT_URL]
+        assert len(over) == 1
+        assert over[0].enabled and __version__ in over[0].label
+        assert over[0].label.startswith("Over Huurklaar Meldingen")

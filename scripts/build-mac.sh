@@ -26,6 +26,9 @@ for key in CFBundleShortVersionString CFBundleVersion; do
   /usr/libexec/PlistBuddy -c "Set :$key $VERSION" "$PLIST" 2>/dev/null \
     || /usr/libexec/PlistBuddy -c "Add :$key string $VERSION" "$PLIST"
 done
+# Zichtbaar onder "Toon info" in de Finder (AUTHOR in core/defaults.py).
+/usr/libexec/PlistBuddy -c "Set :NSHumanReadableCopyright © 2026 DV Consulting" "$PLIST" 2>/dev/null \
+  || /usr/libexec/PlistBuddy -c "Add :NSHumanReadableCopyright string © 2026 DV Consulting" "$PLIST"
 
 # URL-schema huurklaar-meldingen://: "Koppel de app" in Huurklaar opent de app met adres en sleutel.
 /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes array" "$PLIST"
