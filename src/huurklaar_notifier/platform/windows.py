@@ -86,6 +86,7 @@ class TrayApp:
 
     def _start_loop(self, icon: pystray.Icon) -> None:
         icon.visible = True
+        self.actions.first_run()  # start zelf maar één keer een thread; de sleutelopslag wordt daar gelezen
         threading.Thread(target=self._loop, name="tray-loop", daemon=True).start()
 
     # De lus vervangt de menubalk-timer van de Mac: meldingen tonen en het menu en icoon vernieuwen.
@@ -105,7 +106,12 @@ class TrayApp:
         c = self.c
         v = c.view()  # één korte lock-sectie; daarna werken we op de kopie
         entries = build_menu(
-            v.state, v.language, v.language_setting, c.platform.autostart.is_enabled(), v.update
+            v.state,
+            v.language,
+            v.language_setting,
+            c.platform.autostart.is_enabled(),
+            v.update,
+            base_url=v.base_url,
         )
         badge = badge_for(v.state)
         title = tooltip(status_line(v.state, v.language), APP_NAME)

@@ -6,15 +6,20 @@ GUI-vrij: deze module importeert nooit AppKit, pystray of tkinter.
 
 from __future__ import annotations
 
+import logging
 import queue
 import threading
 from typing import Protocol
 
-from .api import InvalidKeyError, InvalidUrlError
+from .api import AuthError, InvalidKeyError, InvalidUrlError, NetworkError
 from .controller import Controller
+from .defaults import DEFAULT_BASE_URL
 from .i18n import translate
 from .menu import AUTOSTART, LANGUAGE_PREFIX, QUIT, REFRESH, SETTINGS, Entry
-from .state import Toast
+from .models import Snapshot
+from .state import NotConfigured, Toast
+
+log = logging.getLogger(__name__)
 
 
 class AppUi(Protocol):
@@ -46,6 +51,8 @@ class AppActions:
         self.ui = ui
         # Niet-blokkerend: een tweede klik op Instellingen terwijl het venster open staat doet niets.
         self._settings_lock = threading.Lock()
+        self._first_run_lock = threading.Lock()
+        self._first_run_done = False
 
     def handle(self, entry: Entry) -> None:
         action = entry.action
@@ -81,13 +88,35 @@ class AppActions:
                 notifier.notify(t.title, t.body, t.url)
             rebuild = True
 
+    def first_run(self) -> threading.Thread | None:
+        """Opent één keer per proces de instellingen als er nog geen adres of sleutel is.
+
+        Geeft de controle-thread terug (of `None` bij een volgende oproep). De Keychain wordt op die thread gelezen,
+        niet op de UI-thread: op de Mac kan dat een systeemvenster tonen.
+        """
+        with self._first_run_lock:
+            if self._first_run_done:
+                return None
+            self._first_run_done = True
+        thread = threading.Thread(target=self._first_run_check, name="first-run", daemon=True)
+        thread.start()
+        return thread
+
+    def _first_run_check(self) -> None:
+        try:
+            if not self.c.config.base_url or not self.c.platform.secrets.get():
+                self.settings()
+        except Exception as e:  # de eerste start mag de app nooit laten stoppen; enkel het type loggen
+            log.warning("eerste start mislukt: %s", type(e).__name__)
+
     def settings(self) -> None:
         """De instellingenflow. Draait op een eigen thread, want de dialoog blokkeert."""
         if not self._settings_lock.acquire(blocking=False):
             return  # er staat al een instellingenvenster open
         try:
             lang = self.c.language
-            answer = self.ui.ask_settings(lang, self.c.config.base_url, bool(self.c.platform.secrets.get()))
+            base_url = self.c.config.base_url or DEFAULT_BASE_URL
+            answer = self.ui.ask_settings(lang, base_url, bool(self.c.platform.secrets.get()))
             if answer is None:
                 return  # geannuleerd: niets wijzigen
             url, key = answer
@@ -97,6 +126,41 @@ class AppActions:
                 self.ui.alert(translate(lang, "dialog.invalid_url"))
             except InvalidKeyError:
                 self.ui.alert(translate(lang, "dialog.invalid_key"))
+            else:
+                self._show_connection_result(lang)
             self.ui.request_rebuild()
         finally:
             self._settings_lock.release()
+
+    def _show_connection_result(self, lang: str) -> None:
+        """Test de nieuwe instellingen en toont precies één boodschap. Mag de flow nooit breken."""
+        try:
+            result = self.c.test_connection()
+        except Exception as e:  # een onverwachte fout in de test mag de instellingenflow niet breken
+            log.warning("verbinding testen mislukt: %s", type(e).__name__)  # enkel het type, nooit gegevens
+            self.ui.alert(translate(lang, "dialog.unexpected"))
+            return
+        if isinstance(result, NotConfigured):
+            return  # er was niets om te testen: geen melding
+        # Kies op type, nooit op de fouttekst. AuthError en NetworkError zijn subklassen van ApiError: eerst die.
+        if isinstance(result, Snapshot):
+            message = translate(lang, "dialog.connected", detail=_snapshot_detail(result, lang))
+        elif isinstance(result, AuthError):
+            message = translate(lang, "dialog.key_rejected")
+        elif isinstance(result, NetworkError):
+            message = translate(lang, "dialog.unreachable")
+        else:  # ApiError, ProtocolError of een andere uitkomst: het adres antwoordt niet zoals de API
+            message = translate(lang, "dialog.unexpected")
+        self.ui.alert(message)
+
+
+def _snapshot_detail(snapshot: Snapshot, lang: str) -> str:
+    """De tellers zoals `status_line`: open en te laat, 'Niets te doen' bij nul, of 'tijdelijk uit'."""
+    if not snapshot.enabled:
+        return translate(lang, "status.disabled")
+    if snapshot.total <= 0:
+        return translate(lang, "status.idle")
+    detail = translate(lang, "status.tasks", n=snapshot.total)
+    if snapshot.overdue:
+        detail += ", " + translate(lang, "status.overdue", n=snapshot.overdue)
+    return detail

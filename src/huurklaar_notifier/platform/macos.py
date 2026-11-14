@@ -219,6 +219,7 @@ class MenubarApp(rumps.App):
 
     # Alles hieronder draait op de hoofdthread.
     def _tick(self, _) -> None:
+        self.actions.first_run()  # na de eerste tik niets meer: het start zelf maar één keer een thread
         if self.actions.drain(self._results, self.c.platform.notifier):
             self._rebuild_needed = True
         if self._rebuild_needed:
@@ -232,7 +233,12 @@ class MenubarApp(rumps.App):
     def _render(self) -> None:
         v = self.c.view()  # één korte lock-sectie; daarna werken we op de kopie
         entries = build_menu(
-            v.state, v.language, v.language_setting, self.c.platform.autostart.is_enabled(), v.update
+            v.state,
+            v.language,
+            v.language_setting,
+            self.c.platform.autostart.is_enabled(),
+            v.update,
+            base_url=v.base_url,
         )
         title = title_for(v.state)
         if not self._menu_cache.changed(entries, title):

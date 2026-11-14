@@ -27,15 +27,16 @@ Verificatie, dezelfde stappen als CI. Draai ze vóór je zegt dat iets klaar is:
   - `api.py`: HTTP-client.
   - `models.py`: `parse_snapshot` blijft bewust tolerant voor nieuwe velden.
   - `state.py`: `State` met statussen, back-off (`BACKOFF_MAX`) en de `seen`-logica (`_new_toasts`, `MAX_SEEN`).
-  - `controller.py`: `Controller` met `_lock`, `poll`, `configure` en `set_language`.
+  - `controller.py`: `Controller` met `_lock`, `poll`, `configure`, `set_language` en `test_connection` (één aanvraag met de bewaarde instellingen, zonder toestand of `seen` te wijzigen).
   - `poller.py`: `Poller` en `UpdatePoller`, elk op een eigen thread.
-  - `menu.py`: `build_menu` en `kind_label`.
-  - `app_actions.py`: `AppActions`, wat Mac en Windows delen: menuklikken afhandelen (`handle`), de resultatenqueue leeglezen (`drain`) en de instellingenflow (`settings`, met een lock zodat er maar één venster tegelijk open staat). Het platform levert enkel een `AppUi` met de dialoog, de alert, het herbouwen en het afsluiten. Kies een foutmelding op exceptietype (`InvalidUrlError`, `InvalidKeyError` uit `api.py`), nooit op de fouttekst.
+  - `menu.py`: `build_menu` en `kind_label`. Nieuwe parameters van `build_menu` komen als keyword met een standaardwaarde (zoals `base_url`), zodat bestaande aanroepen blijven werken.
+  - `defaults.py`: het standaard-API-adres (productie) en per bekend API-adres het webadres van de app (`app_url_for`). Verandert het API-domein, pas het dan enkel hier aan.
+  - `app_actions.py`: `AppActions`, wat Mac en Windows delen: menuklikken afhandelen (`handle`), de resultatenqueue leeglezen (`drain`), de eerste start (`first_run`: opent de instellingen één keer per proces als adres of sleutel ontbreekt, en leest de sleutelopslag op een eigen thread) en de instellingenflow (`settings`, met een lock zodat er maar één venster tegelijk open staat; na Bewaren test ze de verbinding en toont ze precies één boodschap). Het platform levert enkel een `AppUi` met de dialoog, de alert, het herbouwen en het afsluiten. Kies een foutmelding op exceptietype (`InvalidUrlError`, `InvalidKeyError`, `AuthError`, `NetworkError` uit `api.py`; `AuthError` en `NetworkError` zijn subklassen van `ApiError`, test ze dus eerst), nooit op de fouttekst.
   - `i18n.py`: catalogus in NL, FR en EN, met NL als bron.
   - `config.py`: `ConfigStore` schrijft atomair weg.
   - Verder: `updates.py`, `tls.py`, `version.py`, `selftest.py`.
 - `platform/` bevat per platform de sleutelopslag, de meldingen, de menubalk of tray en "start bij aanmelden".
-  - `macos.py`: rumps. `MenubarApp._tick` draait elke seconde op de hoofdthread.
+  - `macos.py`: rumps. `MenubarApp._tick` draait elke seconde op de hoofdthread. Lees daar nooit de Keychain: dat kan een systeemvenster tonen en de menubalk laten hangen.
   - `windows.py`: alleen importeerbaar op Windows. `TrayApp._loop` draait op een eigen thread.
 - `testing/` bevat de nep-server, nep-GitHub en het nep-platform. De tests en `--selftest` gebruiken ze allebei.
 
