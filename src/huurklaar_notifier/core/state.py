@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 
 from .api import ApiClient, ApiError, AuthError, NetworkError, is_openable
 from .config import Config
-from .i18n import translate
+from .i18n import NL, translate
 from .models import Item, ProtocolError, Snapshot
 
 
@@ -144,7 +144,7 @@ class State:
             return [
                 Toast(
                     translate(lang, "toast.summary", n=len(fresh)),
-                    translate(lang, "toast.summary_body"),
+                    summary_body(fresh, lang),
                     app_url(fresh),
                     "summary",
                     "summary",
@@ -160,6 +160,29 @@ def app_url(items: list[Item]) -> str | None:
         if is_openable(i.href):
             return f"{parts.scheme}://{parts.netloc}/"
     return None
+
+
+def summary_body(items: list[Item], lang: str) -> str:
+    """De tekst van een samenvatting: het aantal per soort, meest voorkomende eerst, en hoeveel er te laat zijn.
+
+    Bij gelijke aantallen blijft de volgorde van eerste voorkomen, want de server sorteert op dringendheid.
+    Een onbekende soort telt mee in één groep 'other', zodat er nooit een ruwe sleutel in de tekst komt.
+    """
+    counts: dict[str, int] = {}  # dict behoudt de volgorde van eerste voorkomen
+    for item in items:
+        # Zonder eigen telvorm (ook een soort die later in `kind.*` bijkomt) valt ze onder 'other'.
+        kind = item.kind if f"count.{item.kind}.one" in NL else "other"
+        counts[kind] = counts.get(kind, 0) + 1
+    # sorted is stabiel: bij gelijke aantallen blijft de volgorde van eerste voorkomen
+    parts = []
+    for kind, n in sorted(counts.items(), key=lambda kv: -kv[1]):
+        form = "one" if n == 1 else "many"
+        parts.append(translate(lang, f"count.{kind}.{form}", n=n))
+    text = ", ".join(parts)
+    overdue = sum(1 for item in items if item.overdue)
+    if overdue:
+        text += " " + translate(lang, "toast.summary_overdue", n=overdue)
+    return text
 
 
 def item_toast(item: Item, lang: str) -> Toast:
