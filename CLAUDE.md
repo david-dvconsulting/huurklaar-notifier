@@ -26,13 +26,13 @@ Verificatie, dezelfde stappen als CI. Draai ze vóór je zegt dat iets klaar is:
 - `core/` importeert nooit een GUI.
   - `api.py`: HTTP-client.
   - `models.py`: `parse_snapshot` blijft bewust tolerant voor nieuwe velden.
-  - `state.py`: `State` met statussen, back-off (`BACKOFF_MAX`) en de `seen`-logica (`_new_toasts`, `MAX_SEEN`). Een poll geeft een `Delivery(toasts, withdraw)`: de nieuwe meldingen (`Toast` met `key` = item-id en `group` = soort, of `"summary"` voor beide) en de ids die uit `seen` verdwenen zijn. Bij een afgekapte lijst of een fout trekt ze niets in.
-  - `controller.py`: `Controller` met `_lock`, `poll`, `configure` en `set_language`.
+  - `state.py`: `State` met statussen, back-off (`BACKOFF_MAX`) en de `seen`-logica (`_new_toasts`, `MAX_SEEN`). Een poll geeft een `Delivery(toasts, withdraw)`: de nieuwe meldingen (`Toast` met `key` = item-id en `group` = soort, of `"summary"` voor beide) en de ids die uit `seen` verdwenen zijn. Bij een afgekapte lijst of een fout trekt ze niets in. `missed` telt de meldingen die tijdens een pauze gemist zijn (enkel in het geheugen); `_daily_reminder` maakt de dagelijkse herinnering (sleutel `"reminder"`). De samenvatting na een pauze heeft sleutel `"paused"`; beide hebben groep `"summary"`.
+  - `controller.py`: `Controller` met `_lock`, `poll`, `configure` en `set_language`, en de instellingen uit het menu: `set_pause`/`resume`, `toggle_kind` en `toggle_reminder`. Elk neemt `_lock` en schrijft daarna weg. `next_delay()` wacht nooit langer dan tot het einde van een pauze of tot de volgende 09:00 (`REMINDER_HOUR`), telkens plus 1 s.
   - `poller.py`: `Poller` en `UpdatePoller`, elk op een eigen thread.
-  - `menu.py`: `build_menu` en `kind_label`.
+  - `menu.py`: `build_menu` en `kind_label`. Instellingen in het menu zijn een prefix-actie (`LANGUAGE_PREFIX`, `PAUSE_PREFIX`, `KIND_PREFIX`) of een vaste actie (`REMINDER`), afgehandeld in `AppActions.handle`. De waarden komen uit `View`, dat de controller onder de lock vult.
   - `app_actions.py`: `AppActions`, wat Mac en Windows delen: menuklikken afhandelen (`handle`), de resultatenqueue leeglezen (`drain`) en de instellingenflow (`settings`, met een lock zodat er maar één venster tegelijk open staat). Het platform levert enkel een `AppUi` met de dialoog, de alert, het herbouwen en het afsluiten. Kies een foutmelding op exceptietype (`InvalidUrlError`, `InvalidKeyError` uit `api.py`), nooit op de fouttekst.
   - `i18n.py`: catalogus in NL, FR en EN, met NL als bron.
-  - `config.py`: `ConfigStore` schrijft atomair weg.
+  - `config.py`: `ConfigStore` schrijft atomair weg. Elk veld laadt tolerant: een ontbrekende of ongeldige waarde geeft de standaard (`_number`, `_kinds`, `_reminder_flag`, `_date`), want het bestand kan van een oudere versie of met de hand gewijzigd zijn.
   - Verder: `updates.py`, `tls.py`, `version.py`, `selftest.py`.
 - `platform/` bevat per platform de sleutelopslag, de meldingen, de menubalk of tray en "start bij aanmelden".
   - `base.py`: de protocollen. Een `Notifier` heeft `notify(toast)` en `withdraw(keys)`, en werpt nooit. `drain` trekt eerst in en toont daarna.
@@ -49,6 +49,12 @@ Verificatie, dezelfde stappen als CI. Draai ze vóór je zegt dat iets klaar is:
 - Tests met threads wachten altijd met een time-out (`Event.wait(timeout=2)`) en stoppen de thread op het einde (`stop()` plus `join(timeout=...)`). Maak wachttijden instelbaar via een constructorparameter met een standaardwaarde, zodat de test snel blijft.
 - Een concurrency-test moet falen op de oude code. Controleer dat eenmalig.
 
+## Tijd: pauze, herinnering en het pollinterval
+
+- Logica die van de klok afhangt, gebruikt de injecteerbare `Controller._clock`, nooit `time.time()`. `State` krijgt geen klok: de controller geeft `paused` en `reminder_day` mee.
+- Het pollinterval komt van de server en kan uren duren (de admin standaard 6 u). Iets dat op een vast tijdstip moet gebeuren, begrenst daarom `Controller.next_delay()`. Doe je dat niet, dan komt het tot een interval te laat. Rekenen in lokale tijd doe je met `time.mktime((…, tm_isdst=-1))` (`tomorrow_morning`, `next_local_time`), zodat het zomeruur klopt.
+- Tests en `--selftest` die de echte klok gebruiken, krijgen 08:00 lokale tijd (`vroeg_op_de_dag` in `tests/conftest.py`). Anders voegt de herinnering na 9:00 een melding toe en hangt het resultaat af van het uur van de testrun. Verwachtingen leid je af uit `time.localtime`/`time.mktime`, niet uit een vaste tijdzone (CI draait op Windows en macOS).
+
 ## Compatibel blijven met de server
 
 - Al geïnstalleerde versies kunnen we niet meer aanpassen, dus de app moet nieuwe velden en waarden van de server verdragen.
@@ -61,7 +67,7 @@ Verificatie, dezelfde stappen als CI. Draai ze vóór je zegt dat iets klaar is:
 
 - **Taal**: commentaar, docstrings, testnamen, UI-teksten en commitberichten in het Nederlands. Identifiers in het Engels. De README is in het Engels.
 - **Stijl**: ruff met regelbreedte 110 en de regels E, F, I, UP, B en SIM. Commentaar legt het *waarom* uit.
-- **UI-tekst**: zet elke nieuwe sleutel in NL, FR en EN in `core/i18n.py`. Een test bewaakt dat alle talen dezelfde sleutels hebben.
+- **UI-tekst**: zet elke nieuwe sleutel in NL, FR en EN in `core/i18n.py`. Een test bewaakt dat alle talen dezelfde sleutels hebben. De catalogus kent geen meervoudsregels: geef het enkelvoud een eigen sleutel (`toast.paused_summary_one`, `count.task.one`/`count.task.many`), anders staat er "1 nieuwe meldingen".
 - **Logs**: nooit een sleutel, titel, adres of ander gegeven. Enkel het fouttype.
 - **Werkwijze per Jira-ticket**: één branch `kan-<taak>-<korte-omschrijving>` en één PR per taak, met één commit per sub-task. Een commit heet `KAN-<sub-task>: <wat>` en legt in de body het waarom uit. De volledige werkwijze staat in de skill `kan-ticket` in de app-repo (`huurklaar/.claude/skills/kan-ticket/SKILL.md`). Zet geen interne links (Jira-site) in PR-teksten, want de repo is publiek.
 - **Git-identiteit**: commits staan op `david <david@dvconsulting.be>`, ingesteld in de repo-config (`git config user.email`). Is de globale git-config een ander adres, zet de identiteit dan per repo. Controleer de auteur met `git log -1 --format='%an <%ae>'` vóór je pusht: deze repo is publiek.
