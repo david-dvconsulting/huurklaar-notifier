@@ -5,11 +5,12 @@ import time
 
 import pytest
 
-from huurklaar_notifier.core.api import ApiClient, ApiError
+from huurklaar_notifier.core.api import ApiClient, ApiError, AuthError, NetworkError
 from huurklaar_notifier.core.config import ConfigStore
 from huurklaar_notifier.core.controller import Controller
-from huurklaar_notifier.core.state import NotConfigured, State, Status
-from huurklaar_notifier.testing.fake_server import EMPTY, FAKE_KEY, SAMPLE
+from huurklaar_notifier.core.models import ProtocolError, Snapshot
+from huurklaar_notifier.core.state import Delivery, NotConfigured, State, Status
+from huurklaar_notifier.testing.fake_server import EMPTY, FAKE_KEY, SAMPLE, FakeServer
 from huurklaar_notifier.testing.fakes import FakePlatform
 
 ANTWOORD_BINNEN = 0.1  # seconden: de UI-thread mag nooit langer wachten
@@ -128,7 +129,7 @@ def test_poll_na_trage_fetch_geeft_nog_altijd_de_melding(trage):
     t, uit = _poll_in_thread(trage)
     trage.vrijgeven.set()
     t.join(timeout=5)
-    assert [x.title for x in uit[0]] == ["Indexatie nakijken"]
+    assert [x.title for x in uit[0].toasts] == ["Indexatie nakijken"]
     assert "task-1" in trage.config.seen
 
 
@@ -138,7 +139,7 @@ def test_configure_tijdens_fetch_zet_oude_seen_niet_terug(trage):
     trage.vrijgeven.set()
     t.join(timeout=5)
     assert not t.is_alive()
-    assert uit == [[]]  # resultaat van het oude account is weggegooid
+    assert uit == [Delivery()]  # resultaat van het oude account is weggegooid
     assert trage.config.seen == []
     assert trage.state.status is Status.NOT_CONFIGURED  # ook de status van het oude account niet
 
@@ -166,7 +167,7 @@ def test_fetch_zonder_client_geeft_not_configured(controller):
     assert isinstance(State.fetch(None), NotConfigured)
     state = State()
     state.status = Status.IDLE
-    assert state.apply(NotConfigured(), controller.config, "nl", "12:00") == []
+    assert state.apply(NotConfigured(), controller.config, "nl", "12:00") == Delivery()
     assert state.status is Status.NOT_CONFIGURED and state.snapshot is None
 
 
@@ -178,7 +179,7 @@ def test_fetch_en_apply_geven_hetzelfde_als_poll(controller, server):
     ca, cb = Config(base_url="x"), Config(base_url="x")
     toasts_a = a.poll(client, ca, "nl", "12:00")
     toasts_b = b.apply(b.fetch(client), cb, "nl", "12:00")
-    assert toasts_a == toasts_b and toasts_a
+    assert toasts_a == toasts_b and toasts_a.toasts
     assert (a.status, a.snapshot, a.failures, a.updated_at) == (
         b.status,
         b.snapshot,
@@ -188,7 +189,7 @@ def test_fetch_en_apply_geven_hetzelfde_als_poll(controller, server):
     assert ca.seen == cb.seen != []
     # ook bij een fout
     server.status = 500
-    assert a.poll(client, ca, "nl", "12:01") == b.apply(b.fetch(client), cb, "nl", "12:01") == []
+    assert a.poll(client, ca, "nl", "12:01") == b.apply(b.fetch(client), cb, "nl", "12:01") == Delivery()
     assert (a.status, a.failures) == (b.status, b.failures) == (Status.OFFLINE, 1)
 
 
@@ -215,7 +216,7 @@ def test_nieuwe_melding_schrijft_wel_weg(geteld, server, tmp_path):
     assert geteld.schrijfacties == []
     nieuw = {**SAMPLE["items"][0], "id": "task-3", "title": "Nieuwe melding"}
     server.body = {**SAMPLE, "items": [*SAMPLE["items"], nieuw]}
-    assert [t.title for t in geteld.poll()] == ["Nieuwe melding"]
+    assert [t.title for t in geteld.poll().toasts] == ["Nieuwe melding"]
     assert len(geteld.schrijfacties) == 1
     assert "task-3" in ConfigStore(tmp_path).load().seen
 
@@ -243,3 +244,88 @@ def test_leeg_antwoord_schrijft_niet_weg_als_seen_gelijk_blijft(geteld, server):
     geteld.schrijfacties.clear()
     geteld.poll()
     assert geteld.schrijfacties == []
+
+
+# -- test_connection (KAN-265) ---------------------------------------------------------
+
+
+def test_test_connection_geeft_een_snapshot_bij_een_goed_antwoord(controller):
+    assert isinstance(controller.test_connection(), Snapshot)
+
+
+def test_test_connection_geeft_authfout_bij_een_geweigerde_sleutel(controller):
+    controller.configure(controller.config.base_url, VERKEERDE_SLEUTEL)
+    assert isinstance(controller.test_connection(), AuthError)
+
+
+def test_test_connection_geeft_netwerkfout_zonder_server(tmp_path):
+    with FakeServer() as gesloten:
+        adres = gesloten.url  # na het sluiten luistert er niemand meer op deze poort
+    c = Controller(FakePlatform(tmp_path))
+    c.configure(adres, FAKE_KEY)
+    assert isinstance(c.test_connection(), NetworkError)
+
+
+def test_test_connection_geeft_protocolfout_bij_een_vreemd_antwoord(controller, server):
+    server.body = {"onbekend": True}
+    assert isinstance(controller.test_connection(), ProtocolError)
+
+
+def test_test_connection_geeft_apifout_bij_een_onverwachte_statuscode(controller, server):
+    server.status = 404
+    result = controller.test_connection()
+    assert isinstance(result, ApiError)
+    assert not isinstance(result, (AuthError, NetworkError))
+
+
+def test_test_connection_zonder_instellingen_geeft_notconfigured(tmp_path):
+    assert isinstance(Controller(FakePlatform(tmp_path)).test_connection(), NotConfigured)
+
+
+def test_test_connection_wijzigt_geen_toestand(geteld, server):
+    geteld.poll()  # seen en state krijgen een waarde
+    seen, status, snapshot = list(geteld.config.seen), geteld.state.status, geteld.state.snapshot
+    updated_at, failures = geteld.state.updated_at, geteld.state.failures
+    generation = geteld._generation
+    geteld.schrijfacties.clear()
+    server.body = {**SAMPLE, "items": [{**SAMPLE["items"][0], "id": "task-9", "title": "Nieuw"}]}
+    assert isinstance(geteld.test_connection(), Snapshot)
+    assert geteld.config.seen == seen
+    assert geteld.state.status is status
+    assert geteld.state.snapshot is snapshot
+    assert (geteld.state.updated_at, geteld.state.failures) == (updated_at, failures)
+    assert geteld._generation == generation
+    assert geteld.schrijfacties == []  # niets weggeschreven
+
+
+def test_test_connection_wijzigt_de_toestand_ook_niet_bij_een_fout(geteld):
+    geteld.poll()
+    status, snapshot = geteld.state.status, geteld.state.snapshot
+    geteld.platform.secrets.set(VERKEERDE_SLEUTEL)
+    geteld._client_cache = None
+    assert isinstance(geteld.test_connection(), AuthError)
+    assert geteld.state.status is status
+    assert geteld.state.snapshot is snapshot
+    assert geteld.state.failures == 0
+
+
+def test_test_connection_houdt_de_lock_niet_vast_tijdens_de_aanvraag(tmp_path, server):
+    gestart, vrijgeven = threading.Event(), threading.Event()
+    c = Controller(
+        FakePlatform(tmp_path),
+        client_factory=lambda url, key: TrageClient(url, key, gestart, vrijgeven),
+    )
+    c.configure(server.url, FAKE_KEY)
+    resultaat: list = []
+    t = threading.Thread(target=lambda: resultaat.append(c.test_connection()), daemon=True)
+    t.start()
+    try:
+        assert gestart.wait(timeout=2)
+        begin = time.monotonic()
+        c.view()  # de UI-thread neemt dezelfde lock
+        assert time.monotonic() - begin < ANTWOORD_BINNEN
+    finally:
+        vrijgeven.set()
+        t.join(timeout=3)
+    assert not t.is_alive()
+    assert isinstance(resultaat[0], Snapshot)

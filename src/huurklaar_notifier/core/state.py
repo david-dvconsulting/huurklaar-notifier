@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import random
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from urllib.parse import urlsplit
 
 from .api import ApiClient, ApiError, AuthError, NetworkError, is_openable
 from .config import Config
-from .i18n import translate
+from .i18n import NL, translate
 from .models import Item, ProtocolError, Snapshot
 
 
@@ -28,6 +28,16 @@ class Toast:
     title: str
     body: str
     url: str | None
+    key: str  # id van het item waarbij de melding hoort; "summary" voor een samenvatting
+    group: str  # `kind` van het item; "summary" voor een samenvatting
+
+
+@dataclass(frozen=True, slots=True)
+class Delivery:
+    """Wat een poll aan het platform meegeeft: nieuwe meldingen en de sleutels van opgeloste meldingen."""
+
+    toasts: list[Toast] = field(default_factory=list)
+    withdraw: list[str] = field(default_factory=list)
 
 
 BACKOFF_START = 30.0
@@ -74,22 +84,28 @@ class State:
         except (AuthError, NetworkError, ProtocolError, ApiError) as e:
             return e
 
-    def apply(self, result: FetchResult, config: Config, lang: str, now_hhmm: str) -> list[Toast]:
-        """Verwerkt het resultaat van `fetch`: werkt de toestand bij en geeft de meldingen die nu getoond moeten worden."""
+    def apply(self, result: FetchResult, config: Config, lang: str, now_hhmm: str) -> Delivery:
+        """Verwerkt het resultaat van `fetch`: werkt de toestand bij en geeft de meldingen die nu getoond of ingetrokken moeten worden."""
         if isinstance(result, NotConfigured):
             self.status, self.snapshot = Status.NOT_CONFIGURED, None
-            return []
+            return Delivery()
         if isinstance(result, AuthError):
             self.status, self.snapshot, self.failures = Status.AUTH_FAILED, None, 0
-            return []
+            return Delivery()
         if isinstance(result, Exception):  # NetworkError, ProtocolError, ApiError
             self.status, self.failures = Status.OFFLINE, self.failures + 1
-            return []
+            return Delivery()
         self.failures = 0
         self.snapshot, self.status, self.updated_at = result, status_for(result), now_hhmm
-        return self._new_toasts(result, config, lang)
+        before = list(config.seen)
+        toasts = self._new_toasts(result, config, lang)
+        # Een id die verdwenen is uit `seen` is afgewerkt. Bij een afgekapte lijst weten we dat niet zeker:
+        # het item kan gewoon buiten de lijst vallen.
+        after = set(config.seen)
+        withdraw = [] if result.truncated else list(dict.fromkeys(s for s in before if s not in after))
+        return Delivery(toasts, withdraw)
 
-    def poll(self, client: ApiClient | None, config: Config, lang: str, now_hhmm: str) -> list[Toast]:
+    def poll(self, client: ApiClient | None, config: Config, lang: str, now_hhmm: str) -> Delivery:
         """Doet één poll: `fetch` en daarna `apply`."""
         return self.apply(self.fetch(client), config, lang, now_hhmm)
 
@@ -128,8 +144,10 @@ class State:
             return [
                 Toast(
                     translate(lang, "toast.summary", n=len(fresh)),
-                    translate(lang, "toast.summary_body"),
+                    summary_body(fresh, lang),
                     app_url(fresh),
+                    "summary",
+                    "summary",
                 )
             ]
         return [item_toast(i, lang) for i in fresh]
@@ -144,6 +162,29 @@ def app_url(items: list[Item]) -> str | None:
     return None
 
 
+def summary_body(items: list[Item], lang: str) -> str:
+    """De tekst van een samenvatting: het aantal per soort, meest voorkomende eerst, en hoeveel er te laat zijn.
+
+    Bij gelijke aantallen blijft de volgorde van eerste voorkomen, want de server sorteert op dringendheid.
+    Een onbekende soort telt mee in één groep 'other', zodat er nooit een ruwe sleutel in de tekst komt.
+    """
+    counts: dict[str, int] = {}  # dict behoudt de volgorde van eerste voorkomen
+    for item in items:
+        # Zonder eigen telvorm (ook een soort die later in `kind.*` bijkomt) valt ze onder 'other'.
+        kind = item.kind if f"count.{item.kind}.one" in NL else "other"
+        counts[kind] = counts.get(kind, 0) + 1
+    # sorted is stabiel: bij gelijke aantallen blijft de volgorde van eerste voorkomen
+    parts = []
+    for kind, n in sorted(counts.items(), key=lambda kv: -kv[1]):
+        form = "one" if n == 1 else "many"
+        parts.append(translate(lang, f"count.{kind}.{form}", n=n))
+    text = ", ".join(parts)
+    overdue = sum(1 for item in items if item.overdue)
+    if overdue:
+        text += " " + translate(lang, "toast.summary_overdue", n=overdue)
+    return text
+
+
 def item_toast(item: Item, lang: str) -> Toast:
     head = translate(lang, "toast.overdue" if item.overdue else "toast.action")
     where = " · ".join(p for p in (item.property_label, item.account_name) if p)
@@ -151,4 +192,6 @@ def item_toast(item: Item, lang: str) -> Toast:
         item.title,
         f"{head}" + (f" · {where}" if where else ""),
         item.href if is_openable(item.href) else None,
+        item.id,
+        item.kind,
     )

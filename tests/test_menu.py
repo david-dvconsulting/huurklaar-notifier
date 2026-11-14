@@ -4,6 +4,7 @@ from datetime import date
 import pytest
 
 from huurklaar_notifier.core.controller import Controller
+from huurklaar_notifier.core.defaults import DEFAULT_BASE_URL
 from huurklaar_notifier.core.i18n import CATALOG, LANGUAGES, resolve_language, translate
 from huurklaar_notifier.core.menu import (
     AUTOSTART,
@@ -17,12 +18,14 @@ from huurklaar_notifier.core.menu import (
     due_label,
     title_for,
 )
-from huurklaar_notifier.core.state import Status
+from huurklaar_notifier.core.state import State, Status
 from huurklaar_notifier.testing.fake_server import EMPTY, FAKE_KEY, SAMPLE
 from huurklaar_notifier.testing.fakes import FakePlatform
 
 VANDAAG = date(2026, 11, 14)
 KLOK = 1_700_000_000.0  # vaste tijd voor de 'Bijgewerkt om'-regel
+
+TEST_API = "https://gqncu23i4i.execute-api.eu-central-1.amazonaws.com"
 
 
 def labels(entries):
@@ -523,3 +526,43 @@ def test_extreme_accountnaam_bij_één_groep_met_soortvoorvoegsel(controller, se
         assert len(label) <= MAX_LABEL
         assert label.endswith(" · 3 d te laat")
     assert lijst[0].startswith("⚠️ Taak voor jou: Lekkage · ") and "…" in lijst[0]
+
+
+# -- eerste start: hulpitem voor de sleutel ----------------------------------------------------------
+def _menu(status: Status, base_url: str = "") -> list[Entry]:
+    state = State()
+    state.status = status
+    return build_menu(state, "nl", "auto", False, base_url=base_url)
+
+
+@pytest.mark.parametrize(
+    ("status", "verwacht"),
+    [
+        (Status.NOT_CONFIGURED, True),
+        (Status.AUTH_FAILED, True),
+        (Status.IDLE, False),
+        (Status.ATTENTION, False),
+        (Status.OFFLINE, False),
+        (Status.DISABLED, False),
+    ],
+)
+def test_sleutel_hulpitem_alleen_bij_niet_aangemeld_en_sleutel_ongeldig(status, verwacht):
+    heeft = any(e.label == translate("nl", "menu.get_key") for e in _menu(status, DEFAULT_BASE_URL))
+    assert heeft is verwacht
+
+
+@pytest.mark.parametrize("status", [Status.NOT_CONFIGURED, Status.AUTH_FAILED])
+@pytest.mark.parametrize(
+    ("base_url", "app"),
+    [
+        (DEFAULT_BASE_URL, "https://app.huurklaar.be"),
+        (DEFAULT_BASE_URL + "/", "https://app.huurklaar.be"),
+        (TEST_API, "https://app-dev.huurklaar.be"),
+        ("https://onbekend.example.test", "https://app.huurklaar.be"),
+        ("", "https://app.huurklaar.be"),
+    ],
+)
+def test_sleutel_hulpitem_opent_de_app_van_de_omgeving(status, base_url, app):
+    (entry,) = [e for e in _menu(status, base_url) if e.label == translate("nl", "menu.get_key")]
+    assert entry.url == app + "/profile/notifications"
+    assert entry.action is None and entry.enabled

@@ -10,6 +10,7 @@ from typing import Literal
 
 from .. import __version__
 from .api import is_openable
+from .defaults import app_url_for
 from .i18n import LANGUAGES, NL, translate
 from .models import Item
 from .state import State, Status
@@ -189,12 +190,17 @@ def build_menu(
     language_setting: str,
     autostart: bool,
     update: Release | None = None,
+    *,
+    base_url: str = "",
     today: date | None = None,
 ) -> list[Entry]:
     if today is None:
         today = date.today()
     t = lambda key, **p: translate(lang, key, **p)  # noqa: E731
     entries: list[Entry] = [Entry(status_line(state, lang), enabled=False)]
+    if state.status in (Status.NOT_CONFIGURED, Status.AUTH_FAILED):
+        # Zonder (geldige) sleutel: de gebruiker moet er eentje aanmaken in de juiste omgeving.
+        entries.append(Entry(t("menu.get_key"), url=app_url_for(base_url) + "/profile/notifications"))
     if update is not None:  # de klik opent de releasepagina; automatisch vervangen is een latere stap
         entries.append(Entry(t("menu.update", version=update.version), url=update.url))
     # Ook bij ATTENTION en IDLE: zo ziet de gebruiker hoe recent de lijst is.

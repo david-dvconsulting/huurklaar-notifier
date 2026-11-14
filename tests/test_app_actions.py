@@ -7,14 +7,17 @@ import pytest
 
 from huurklaar_notifier.core.api import InvalidKeyError, InvalidUrlError
 from huurklaar_notifier.core.app_actions import AppActions
+from huurklaar_notifier.core.config import ConfigStore
 from huurklaar_notifier.core.controller import Controller
+from huurklaar_notifier.core.defaults import DEFAULT_BASE_URL
 from huurklaar_notifier.core.i18n import translate
 from huurklaar_notifier.core.menu import AUTOSTART, LANGUAGE_PREFIX, QUIT, REFRESH, SETTINGS, Entry
-from huurklaar_notifier.core.state import Toast
+from huurklaar_notifier.core.state import Delivery, Toast
 from huurklaar_notifier.testing.fake_server import FAKE_KEY
 from huurklaar_notifier.testing.fakes import FakePlatform, RecordingNotifier
 
 WACHT = 2  # seconden: threads in tests wachten nooit onbeperkt
+VERBONDEN = "Verbonden. 2 open, 1 te laat."  # de tellers van SAMPLE in de nep-server
 
 
 class NepUi:
@@ -116,9 +119,9 @@ def test_instellingen_starten_op_een_daemon_thread(acties, ui):
 
 # -- drain ----------------------------------------------------------------------------------------
 def test_drain_stuurt_toasts_door_en_vraagt_herbouwen():
-    q: queue.Queue[list[Toast]] = queue.Queue()
-    q.put([Toast("Titel", "Tekst", "https://app.example.test/1")])
-    q.put([Toast("Twee", "Tekst", None)])
+    q: queue.Queue[Delivery] = queue.Queue()
+    q.put(Delivery([Toast("Titel", "Tekst", "https://app.example.test/1", "task-1", "task")]))
+    q.put(Delivery([Toast("Twee", "Tekst", None, "task-2", "task")]))
     notifier = RecordingNotifier()
     acties = AppActions(None, NepUi())  # type: ignore[arg-type]
     assert acties.drain(q, notifier) is True
@@ -126,21 +129,42 @@ def test_drain_stuurt_toasts_door_en_vraagt_herbouwen():
         ("Titel", "Tekst", "https://app.example.test/1"),
         ("Twee", "Tekst", None),
     ]
+    assert [t.key for t in notifier.toasts] == ["task-1", "task-2"]
     assert q.empty()
 
 
-def test_drain_met_lege_lijst_herbouwt_toch():
-    q: queue.Queue[list[Toast]] = queue.Queue()
-    q.put([])  # update gevonden: geen meldingen, wel herbouwen
+def test_drain_trekt_in_voor_het_tonen():
+    q: queue.Queue[Delivery] = queue.Queue()
+    q.put(Delivery([Toast("Titel", "Tekst", None, "task-2", "task")], ["task-1"]))
+    gebeurtenissen: list[str] = []
+
+    class Volgorde(RecordingNotifier):
+        def notify(self, toast):
+            gebeurtenissen.append("notify")
+            super().notify(toast)
+
+        def withdraw(self, keys):
+            gebeurtenissen.append("withdraw")
+            super().withdraw(keys)
+
+    notifier = Volgorde()
+    assert AppActions(None, NepUi()).drain(q, notifier) is True  # type: ignore[arg-type]
+    assert gebeurtenissen == ["withdraw", "notify"]
+    assert notifier.withdrawn == ["task-1"]
+
+
+def test_drain_met_lege_delivery_herbouwt_toch():
+    q: queue.Queue[Delivery] = queue.Queue()
+    q.put(Delivery())  # update gevonden: geen meldingen, wel herbouwen
     notifier = RecordingNotifier()
     assert AppActions(None, NepUi()).drain(q, notifier) is True  # type: ignore[arg-type]
-    assert notifier.sent == []
+    assert notifier.sent == [] and notifier.withdrawn == []
 
 
 def test_drain_met_lege_queue_herbouwt_niet():
     notifier = RecordingNotifier()
     assert AppActions(None, NepUi()).drain(queue.Queue(), notifier) is False  # type: ignore[arg-type]
-    assert notifier.sent == []
+    assert notifier.sent == [] and notifier.withdrawn == []
 
 
 # -- instellingen ---------------------------------------------------------------------------------
@@ -149,8 +173,9 @@ def test_instellingen_bewaren_adres_en_sleutel(acties, controller, ui, server):
     acties.settings()
     assert controller.config.base_url == server.url
     assert controller.platform.secrets.get() == FAKE_KEY
-    assert ui.alerts == [] and ui.rebuilds == 1
-    assert ui.asked == [("nl", "", False)]
+    # Na Bewaren test de app de verbinding en toont ze precies één boodschap (KAN-265).
+    assert ui.alerts == [VERBONDEN] and ui.rebuilds == 1
+    assert ui.asked == [("nl", DEFAULT_BASE_URL, False)]
 
 
 def test_lege_sleutel_houdt_de_bewaarde_sleutel(acties, controller, ui, server):
@@ -158,7 +183,7 @@ def test_lege_sleutel_houdt_de_bewaarde_sleutel(acties, controller, ui, server):
     ui.answer = (server.url, "")
     acties.settings()
     assert controller.platform.secrets.get() == FAKE_KEY
-    assert ui.alerts == []
+    assert ui.alerts == [VERBONDEN]
     assert ui.asked[0][2] is True  # de ui weet dat er al een sleutel bewaard is
 
 
@@ -167,11 +192,26 @@ def test_geen_bewaarde_sleutel_wordt_doorgegeven_als_false(acties, ui):
     assert ui.asked[0][2] is False
 
 
-def test_annuleren_wijzigt_niets_en_herbouwt_niet(acties, controller, ui):
+def test_leeg_bewaard_adres_stelt_het_productieadres_voor(acties, controller, ui):
+    assert controller.config.base_url == ""
+    acties.settings()
+    assert ui.asked[0][1] == DEFAULT_BASE_URL
+
+
+def test_bewaard_adres_wordt_ongewijzigd_voorgesteld(acties, controller, ui, server):
+    controller.configure(server.url, FAKE_KEY)
+    ui.answer = None
+    acties.settings()
+    assert ui.asked[0][1] == server.url
+
+
+def test_annuleren_wijzigt_niets_en_herbouwt_niet(acties, controller, ui, tmp_path):
     ui.answer = None
     acties.settings()
     assert controller.config.base_url == "" and controller.platform.secrets.get() is None
     assert ui.alerts == [] and ui.rebuilds == 0
+    assert not (tmp_path / "config.json").exists()
+    assert ConfigStore(tmp_path).load().base_url == ""
 
 
 def test_ongeldig_adres_toont_de_adresmelding(acties, ui):
@@ -243,4 +283,39 @@ def test_lock_wordt_vrijgegeven_na_een_fout_in_de_dialoog(acties, ui):
         acties.settings()
     ui.ask_settings = NepUi.ask_settings.__get__(ui)  # type: ignore[method-assign]
     acties.settings()
+    assert len(ui.asked) == 1
+
+
+# -- eerste start ---------------------------------------------------------------------------------
+def test_eerste_start_zonder_instellingen_opent_de_flow_een_keer(acties, ui):
+    thread = acties.first_run()
+    assert thread is not None
+    thread.join(timeout=WACHT)
+    assert not thread.is_alive()
+    assert len(ui.asked) == 1 and ui.asked[0][1] == DEFAULT_BASE_URL
+
+
+def test_eerste_start_met_adres_zonder_sleutel_opent_de_flow(acties, controller, ui, server):
+    controller.config.base_url = server.url
+    thread = acties.first_run()
+    assert thread is not None
+    thread.join(timeout=WACHT)
+    assert not thread.is_alive()
+    assert len(ui.asked) == 1 and ui.asked[0][1] == server.url
+
+
+def test_eerste_start_met_adres_en_sleutel_opent_niets(acties, controller, ui, server):
+    controller.configure(server.url, FAKE_KEY)
+    thread = acties.first_run()
+    assert thread is not None
+    thread.join(timeout=WACHT)
+    assert not thread.is_alive()
+    assert ui.asked == []
+
+
+def test_eerste_start_gebeurt_hoogstens_een_keer(acties, ui):
+    eerste = acties.first_run()
+    assert acties.first_run() is None  # tweede oproep start niets
+    assert eerste is not None
+    eerste.join(timeout=WACHT)
     assert len(ui.asked) == 1

@@ -126,8 +126,8 @@ def test_menuregel_bij_nieuwe_versie_in_alle_talen(tmp_path, github):
         ("fr", "Nouvelle version v1.2.0"),
         ("en", "New version v1.2.0"),
     ):
-        entry = build_menu(c.state, lang, "auto", False, c.update)[1]
-        assert entry.label == text and entry.url == c.update.url
+        entry = next(e for e in build_menu(c.state, lang, "auto", False, c.update) if e.label == text)
+        assert entry.url == c.update.url
     assert all("versie v" not in e.label.lower() for e in build_menu(c.state, "nl", "auto", False, None))
 
 
