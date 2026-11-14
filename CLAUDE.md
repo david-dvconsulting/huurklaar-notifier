@@ -29,7 +29,7 @@ Verificatie, dezelfde stappen als CI. Draai ze vóór je zegt dat iets klaar is:
   - `state.py`: `State` met statussen, back-off (`BACKOFF_MAX`) en de `seen`-logica (`_new_toasts`, `MAX_SEEN`).
   - `controller.py`: `Controller` met `_lock`, `poll`, `configure` en `set_language`.
   - `poller.py`: `Poller` en `UpdatePoller`, elk op een eigen thread.
-  - `menu.py`: `build_menu` en `kind_label`.
+  - `menu.py`: `build_menu` groepeert de items per soort (`group_items`, `_distribute` verdeelt de 10 plaatsen round-robin), zet de vervaldatum (`due_label`) en bij meerdere accounts de accountnaam achteraan, en kort labels in met `_fit` (eerst de titel, dan het pand; datum en account blijven heel). `Entry.default` is het standaarditem dat een linksklik op het tray-icoon uitvoert. `title_for` en `title_style` geven de tekst en de kleur (rood bij te laat, Mac) naast het logo. `MenuCache` slaat tekenen over als menu en titel gelijk bleven.
   - `app_actions.py`: `AppActions`, wat Mac en Windows delen: menuklikken afhandelen (`handle`), de resultatenqueue leeglezen (`drain`) en de instellingenflow (`settings`, met een lock zodat er maar één venster tegelijk open staat). Het platform levert enkel een `AppUi` met de dialoog, de alert, het herbouwen en het afsluiten. Kies een foutmelding op exceptietype (`InvalidUrlError`, `InvalidKeyError` uit `api.py`), nooit op de fouttekst.
   - `i18n.py`: catalogus in NL, FR en EN, met NL als bron.
   - `config.py`: `ConfigStore` schrijft atomair weg.
@@ -61,6 +61,7 @@ Verificatie, dezelfde stappen als CI. Draai ze vóór je zegt dat iets klaar is:
 - **Stijl**: ruff met regelbreedte 110 en de regels E, F, I, UP, B en SIM. Commentaar legt het *waarom* uit.
 - **UI-tekst**: zet elke nieuwe sleutel in NL, FR en EN in `core/i18n.py`. Een test bewaakt dat alle talen dezelfde sleutels hebben.
 - **Logs**: nooit een sleutel, titel, adres of ander gegeven. Enkel het fouttype.
+- **Menutests**: geef `build_menu` een vaste `today` mee (de vervaldatums in `SAMPLE` liggen in het verleden, dus het label hangt anders af van de dag). Vergelijk je twee menu's na elkaar, geef `Controller` dan ook een vaste `clock`: "Bijgewerkt om HH:MM" staat in het menu en verandert elke minuut.
 - **Werkwijze per Jira-ticket**: één branch `kan-<taak>-<korte-omschrijving>` en één PR per taak, met één commit per sub-task. Een commit heet `KAN-<sub-task>: <wat>` en legt in de body het waarom uit. De volledige werkwijze staat in de skill `kan-ticket` in de app-repo (`huurklaar/.claude/skills/kan-ticket/SKILL.md`). Zet geen interne links (Jira-site) in PR-teksten, want de repo is publiek.
 - **Git-identiteit**: commits staan op `david <david@dvconsulting.be>`, ingesteld in de repo-config (`git config user.email`). Is de globale git-config een ander adres, zet de identiteit dan per repo. Controleer de auteur met `git log -1 --format='%an <%ae>'` vóór je pusht: deze repo is publiek.
 - **Releases**: zie de README en `scripts/release.sh`. Verplaats of hergebruik nooit een tag. Een release maak je alleen op uitdrukkelijk verzoek.
