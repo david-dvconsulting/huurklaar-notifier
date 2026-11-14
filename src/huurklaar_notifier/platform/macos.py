@@ -6,6 +6,7 @@ onze URL toelaat (prototype in `prototype/`; de vergelijking met `osascript` en 
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import plistlib
 import queue
@@ -36,6 +37,7 @@ from ..core.menu import (
     REFRESH,
     SETTINGS,
     Entry,
+    MenuCache,
     build_menu,
     title_for,
 )
@@ -172,6 +174,23 @@ def alert(lang: str, message: str) -> None:
     )
 
 
+def forget_callbacks(items, registry=None) -> None:
+    """Haalt de items (en recursief hun submenu's) uit het register van rumps.
+
+    `MenuItem.set_callback` zet elk item met zijn callback in `NSApp._ns_to_py_and_callback`, een dict op
+    klasseniveau. `Menu.clear()` ruimt die entries niet op: zonder deze stap blijven na elke herbouw alle
+    oude items en closures in het geheugen staan (rumps 0.4.0).
+    """
+    if registry is None:
+        registry = rumps.rumps.NSApp._ns_to_py_and_callback
+    for item in list(items):
+        children = getattr(item, "values", None)  # een MenuItem is zelf een dict met zijn submenu-items
+        if children is not None:
+            forget_callbacks(children(), registry)
+        with contextlib.suppress(KeyError, AttributeError):  # scheidingslijnen staan niet in het register
+            del registry[item._menuitem]
+
+
 class MenubarApp(rumps.App):
     def __init__(self, controller: Controller) -> None:
         super().__init__(
@@ -180,6 +199,7 @@ class MenubarApp(rumps.App):
         self.c = controller
         self._results: queue.Queue[list[Toast]] = queue.Queue()
         self._rebuild_needed = True
+        self._menu_cache = MenuCache()
         self._poller = Poller(controller, self._results.put)
         # Een gevonden update tekent het menu opnieuw (een lege lijst = geen meldingen, wel herbouwen).
         self._updates = UpdatePoller(controller, lambda: self._results.put([]))
@@ -213,9 +233,17 @@ class MenubarApp(rumps.App):
         entries = build_menu(
             v.state, v.language, v.language_setting, self.c.platform.autostart.is_enabled(), v.update
         )
-        self.title = title_for(v.state)
-        self.menu.clear()
-        self.menu.update(self._items(entries))
+        title = title_for(v.state)
+        if not self._menu_cache.changed(entries, title):
+            return  # niets veranderd: het menu niet opnieuw bouwen
+        try:
+            self.title = title
+            forget_callbacks(self.menu.values())
+            self.menu.clear()
+            self.menu.update(self._items(entries))
+        except Exception:
+            self._menu_cache.reset()  # tekenen mislukt: de volgende poging moet opnieuw tekenen
+            raise
 
     def _items(self, entries: list[Entry]) -> list:
         out: list = []

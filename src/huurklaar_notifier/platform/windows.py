@@ -27,6 +27,7 @@ from ..core.menu import (
     REFRESH,
     SETTINGS,
     Entry,
+    MenuCache,
     build_menu,
     status_line,
 )
@@ -79,6 +80,7 @@ class TrayApp:
         self.c = controller
         self._results: queue.Queue[list[Toast]] = queue.Queue()
         self._rebuild_needed = True
+        self._menu_cache = MenuCache()
         self._stop = threading.Event()
         self._poller = Poller(controller, self._results.put)
         # Een gevonden update tekent het menu opnieuw (een lege lijst = geen meldingen, wel herbouwen).
@@ -118,12 +120,20 @@ class TrayApp:
         entries = build_menu(
             v.state, v.language, v.language_setting, c.platform.autostart.is_enabled(), v.update
         )
-        self.icon.icon = render_icon(badge_for(v.state))
-        self.icon.title = tooltip(status_line(v.state, v.language), APP_NAME)
-        self.icon.menu = pystray.Menu(
-            *build_items(entries, pystray.MenuItem, pystray.Menu, pystray.Menu.SEPARATOR, self._on_entry)
-        )
-        self.icon.update_menu()
+        badge = badge_for(v.state)
+        title = tooltip(status_line(v.state, v.language), APP_NAME)
+        if not self._menu_cache.changed(entries, (badge, title)):
+            return  # niets veranderd: icoon en menu niet opnieuw bouwen
+        try:
+            self.icon.icon = render_icon(badge)
+            self.icon.title = title
+            self.icon.menu = pystray.Menu(
+                *build_items(entries, pystray.MenuItem, pystray.Menu, pystray.Menu.SEPARATOR, self._on_entry)
+            )
+            self.icon.update_menu()
+        except Exception:
+            self._menu_cache.reset()  # tekenen mislukt: de volgende poging moet opnieuw tekenen
+            raise
 
     def _on_entry(self, e: Entry) -> None:
         if e.url:
