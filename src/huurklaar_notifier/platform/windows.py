@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import contextlib
 import ctypes
+import logging
 import os
 import queue
 import sys
@@ -38,6 +39,8 @@ from .windows_menu import build_items, tooltip
 from .windows_notifier import WindowsNotifier
 from .windows_registry import APP_NAME, RunKeyAutostart, register_app_id, run_command
 from .windows_single import acquire
+
+log = logging.getLogger(__name__)
 
 
 def resource(name: str) -> Path:
@@ -95,15 +98,18 @@ class TrayApp:
     def _loop(self) -> None:
         while not self._stop.is_set():
             try:
-                while True:
-                    for t in self._results.get_nowait():
-                        self.c.platform.notifier.notify(t.title, t.body, t.url)
-                    self._rebuild_needed = True
-            except queue.Empty:
-                pass
-            if self._rebuild_needed:
-                self._rebuild_needed = False
-                self._render()
+                try:
+                    while True:
+                        for t in self._results.get_nowait():
+                            self.c.platform.notifier.notify(t.title, t.body, t.url)
+                        self._rebuild_needed = True
+                except queue.Empty:
+                    pass
+                if self._rebuild_needed:
+                    self._render()
+                    self._rebuild_needed = False  # pas na een geslaagde render, anders opnieuw proberen
+            except Exception as e:  # een fout mag de tray-lus niet stoppen; enkel het type loggen
+                log.warning("tray-lus mislukt: %s", type(e).__name__)
             self._stop.wait(1.0)
 
     def _render(self) -> None:

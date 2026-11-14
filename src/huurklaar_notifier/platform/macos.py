@@ -6,6 +6,7 @@ onze URL toelaat (prototype in `prototype/`; de vergelijking met `osascript` en 
 
 from __future__ import annotations
 
+import logging
 import plistlib
 import queue
 import subprocess
@@ -41,6 +42,8 @@ from ..core.menu import (
 from ..core.poller import Poller, UpdatePoller
 from ..core.state import Toast
 from .keyring_store import KeyringSecretStore
+
+log = logging.getLogger(__name__)
 
 APP_NAME = "Huurklaar Meldingen"
 BUNDLE_ID = "be.huurklaar.meldingen"
@@ -198,8 +201,12 @@ class MenubarApp(rumps.App):
         except queue.Empty:
             pass
         if self._rebuild_needed:
-            self._rebuild_needed = False
-            self._render()
+            try:
+                self._render()
+            except Exception as e:  # volgende tik probeert het opnieuw; enkel het type loggen
+                log.warning("menu verversen mislukt: %s", type(e).__name__)
+            else:
+                self._rebuild_needed = False  # pas na een geslaagde render
 
     def _render(self) -> None:
         entries = build_menu(
