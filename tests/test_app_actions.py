@@ -7,7 +7,9 @@ import pytest
 
 from huurklaar_notifier.core.api import InvalidKeyError, InvalidUrlError
 from huurklaar_notifier.core.app_actions import AppActions
+from huurklaar_notifier.core.config import ConfigStore
 from huurklaar_notifier.core.controller import Controller, tomorrow_morning
+from huurklaar_notifier.core.defaults import DEFAULT_BASE_URL
 from huurklaar_notifier.core.i18n import translate
 from huurklaar_notifier.core.menu import (
     AUTOSTART,
@@ -25,6 +27,7 @@ from huurklaar_notifier.testing.fake_server import FAKE_KEY
 from huurklaar_notifier.testing.fakes import FakePlatform, RecordingNotifier
 
 WACHT = 2  # seconden: threads in tests wachten nooit onbeperkt
+VERBONDEN = "Verbonden. 2 open, 1 te laat."  # de tellers van SAMPLE in de nep-server
 
 
 class NepUi:
@@ -180,8 +183,9 @@ def test_instellingen_bewaren_adres_en_sleutel(acties, controller, ui, server):
     acties.settings()
     assert controller.config.base_url == server.url
     assert controller.platform.secrets.get() == FAKE_KEY
-    assert ui.alerts == [] and ui.rebuilds == 1
-    assert ui.asked == [("nl", "", False)]
+    # Na Bewaren test de app de verbinding en toont ze precies één boodschap (KAN-265).
+    assert ui.alerts == [VERBONDEN] and ui.rebuilds == 1
+    assert ui.asked == [("nl", DEFAULT_BASE_URL, False)]
 
 
 def test_lege_sleutel_houdt_de_bewaarde_sleutel(acties, controller, ui, server):
@@ -189,7 +193,7 @@ def test_lege_sleutel_houdt_de_bewaarde_sleutel(acties, controller, ui, server):
     ui.answer = (server.url, "")
     acties.settings()
     assert controller.platform.secrets.get() == FAKE_KEY
-    assert ui.alerts == []
+    assert ui.alerts == [VERBONDEN]
     assert ui.asked[0][2] is True  # de ui weet dat er al een sleutel bewaard is
 
 
@@ -198,11 +202,26 @@ def test_geen_bewaarde_sleutel_wordt_doorgegeven_als_false(acties, ui):
     assert ui.asked[0][2] is False
 
 
-def test_annuleren_wijzigt_niets_en_herbouwt_niet(acties, controller, ui):
+def test_leeg_bewaard_adres_stelt_het_productieadres_voor(acties, controller, ui):
+    assert controller.config.base_url == ""
+    acties.settings()
+    assert ui.asked[0][1] == DEFAULT_BASE_URL
+
+
+def test_bewaard_adres_wordt_ongewijzigd_voorgesteld(acties, controller, ui, server):
+    controller.configure(server.url, FAKE_KEY)
+    ui.answer = None
+    acties.settings()
+    assert ui.asked[0][1] == server.url
+
+
+def test_annuleren_wijzigt_niets_en_herbouwt_niet(acties, controller, ui, tmp_path):
     ui.answer = None
     acties.settings()
     assert controller.config.base_url == "" and controller.platform.secrets.get() is None
     assert ui.alerts == [] and ui.rebuilds == 0
+    assert not (tmp_path / "config.json").exists()
+    assert ConfigStore(tmp_path).load().base_url == ""
 
 
 def test_ongeldig_adres_toont_de_adresmelding(acties, ui):
@@ -325,3 +344,38 @@ def test_reminder_wisselt_het_vinkje_en_vraagt_herbouwen(tmp_path, ui):
     assert c.config.daily_reminder is False and ui.rebuilds == 1
     acties.handle(Entry("Dagelijkse herinnering", action=REMINDER))
     assert c.config.daily_reminder is True and ui.rebuilds == 2
+
+
+# -- eerste start ---------------------------------------------------------------------------------
+def test_eerste_start_zonder_instellingen_opent_de_flow_een_keer(acties, ui):
+    thread = acties.first_run()
+    assert thread is not None
+    thread.join(timeout=WACHT)
+    assert not thread.is_alive()
+    assert len(ui.asked) == 1 and ui.asked[0][1] == DEFAULT_BASE_URL
+
+
+def test_eerste_start_met_adres_zonder_sleutel_opent_de_flow(acties, controller, ui, server):
+    controller.config.base_url = server.url
+    thread = acties.first_run()
+    assert thread is not None
+    thread.join(timeout=WACHT)
+    assert not thread.is_alive()
+    assert len(ui.asked) == 1 and ui.asked[0][1] == server.url
+
+
+def test_eerste_start_met_adres_en_sleutel_opent_niets(acties, controller, ui, server):
+    controller.configure(server.url, FAKE_KEY)
+    thread = acties.first_run()
+    assert thread is not None
+    thread.join(timeout=WACHT)
+    assert not thread.is_alive()
+    assert ui.asked == []
+
+
+def test_eerste_start_gebeurt_hoogstens_een_keer(acties, ui):
+    eerste = acties.first_run()
+    assert acties.first_run() is None  # tweede oproep start niets
+    assert eerste is not None
+    eerste.join(timeout=WACHT)
+    assert len(ui.asked) == 1

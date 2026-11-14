@@ -171,8 +171,9 @@ def test_icoon_is_een_vierkant_met_een_badge_in_de_hoek():
 
 # -- menu ----------------------------------------------------------------------------------------
 class Item:
-    def __init__(self, label, action, checked=None, enabled=True):
+    def __init__(self, label, action, checked=None, enabled=True, default=False):
         self.label, self.action, self.checked, self.enabled = label, action, checked, enabled
+        self.default = default
 
 
 class Menu:
@@ -200,6 +201,15 @@ def test_menu_actie_neemt_hoogstens_twee_parameters():
     # pystray weigert acties met meer dan twee parameters; een lambda met standaardwaarde telt mee.
     (item,) = build_items([Entry("x", url="https://a.example.test/")], Item, Menu, "SEP", lambda e: None)
     assert item.action.__code__.co_argcount <= 2
+
+
+def test_build_items_geeft_default_door_aan_pystray():
+    entries = [
+        Entry("Huurklaar openen", url="https://app.example.test/", default=True),
+        Entry("Instellingen…", action="settings"),
+    ]
+    items = build_items(entries, Item, Menu, "SEP", lambda e: None)
+    assert [i.default for i in items] == [True, False]
 
 
 def test_tooltip_wordt_afgekapt():

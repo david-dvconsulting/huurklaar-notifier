@@ -13,7 +13,7 @@ from ..platform.base import Platform
 from .api import ApiClient, AuthError, InvalidKeyError, validate_base_url, validate_key
 from .config import MAX_MUTED_KINDS, Config, ConfigStore
 from .i18n import resolve_language
-from .state import Delivery, State, Toast
+from .state import Delivery, FetchResult, State, Toast
 from .updates import DAY, Release, UpdateCheckError, fetch_latest_release, newer_than_current, release_url
 
 
@@ -30,6 +30,7 @@ class View:
     language: str
     language_setting: str
     update: Release | None
+    base_url: str  # het bewaarde API-adres; het menu kiest daarop de juiste app-omgeving
     paused_until: float = 0.0  # enkel gezet als de pauze nu nog loopt
     muted_kinds: tuple[str, ...] = ()
     daily_reminder: bool = True
@@ -194,6 +195,7 @@ class Controller:
                 self.language,
                 self.config.language,
                 self._newer_release(self.config.update_version),
+                self.config.base_url,
                 self._active_pause(),
                 tuple(self.config.muted_kinds),
                 self.config.daily_reminder,
@@ -232,6 +234,17 @@ class Controller:
             return None  # niets cachen: de volgende poll probeert het opnieuw
         self._client_cache = (self.config.base_url, key, client)
         return client
+
+    def test_connection(self) -> FetchResult:
+        """Vraagt één keer op met de bewaarde instellingen en geeft het resultaat terug, zonder iets te wijzigen.
+
+        Geen `apply`, geen `seen`, geen config en geen `_generation`: de poller blijft de enige die de toestand
+        bijwerkt. Zonder client (niet ingesteld) is het resultaat `NotConfigured()`.
+        """
+        with self._lock:
+            client = self._client()
+        # Net als in `poll`: de aanvraag duurt tot 10 s en gebeurt dus nooit met de lock.
+        return State.fetch(client)
 
     # -- updatecheck (KAN-121) -----------------------------------------------------
     @property
