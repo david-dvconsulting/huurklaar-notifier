@@ -27,6 +27,14 @@ for key in CFBundleShortVersionString CFBundleVersion; do
     || /usr/libexec/PlistBuddy -c "Add :$key string $VERSION" "$PLIST"
 done
 
+# URL-schema huurklaar-meldingen://: "Koppel de app" in Huurklaar opent de app met adres en sleutel.
+/usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes array" "$PLIST"
+/usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0 dict" "$PLIST"
+/usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLName string $BUNDLE_ID" "$PLIST"
+/usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleTypeRole string Viewer" "$PLIST"
+/usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes array" "$PLIST"
+/usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string huurklaar-meldingen" "$PLIST"
+
 # De build is enkel arm64 (Apple Silicon, KAN-289). macOS 11 is de eerste macOS op Apple Silicon, dus lager
 # kan een arm64-build nergens draaien; zo meldt macOS dat netjes in plaats van een kapotte app te tonen.
 /usr/libexec/PlistBuddy -c "Set :LSMinimumSystemVersion 11.0" "$PLIST" 2>/dev/null \

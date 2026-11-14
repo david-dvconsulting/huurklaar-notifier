@@ -20,6 +20,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--forget", action="store_true", help="Windows: ruim sleutel en autostart op (uninstall)"
     )
+    parser.add_argument(
+        "link", nargs="?", help="Windows: huurklaar-meldingen://koppel?... (het URL-schema start de app zo)"
+    )
     args = parser.parse_args(argv)
     if args.version:
         print(__version__)
@@ -40,7 +43,7 @@ def main(argv: list[str] | None = None) -> int:
             return forget()
         from .platform.windows import run as run_windows
 
-        return run_windows()
+        return run_windows(args.link)
     print("Dit platform wordt niet ondersteund.", file=sys.stderr)
     return 2
 

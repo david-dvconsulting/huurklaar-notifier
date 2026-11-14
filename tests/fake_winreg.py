@@ -47,3 +47,11 @@ class FakeWinreg:
         if name not in key.values:
             raise FileNotFoundError(name)
         del key.values[name]
+
+    def DeleteKey(self, root, path):  # noqa: N802
+        """Zoals het echte register: een sleutel met subsleutels wissen mislukt."""
+        if (root, path) not in self.keys:
+            raise FileNotFoundError(path)
+        if any(r == root and k.startswith(path + "\\") for r, k in self.keys):
+            raise PermissionError(path)
+        del self.keys[(root, path)]

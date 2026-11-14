@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from .. import __version__
 from .api import is_openable
+from .defaults import app_url_for
 from .i18n import LANGUAGES, NL, translate
 from .state import State, Status
 from .state import app_url as _app_url
@@ -63,10 +64,19 @@ def kind_label(lang: str, kind: str) -> str:
 
 
 def build_menu(
-    state: State, lang: str, language_setting: str, autostart: bool, update: Release | None = None
+    state: State,
+    lang: str,
+    language_setting: str,
+    autostart: bool,
+    update: Release | None = None,
+    *,
+    base_url: str = "",
 ) -> list[Entry]:
     t = lambda key, **p: translate(lang, key, **p)  # noqa: E731
     entries: list[Entry] = [Entry(status_line(state, lang), enabled=False)]
+    if state.status in (Status.NOT_CONFIGURED, Status.AUTH_FAILED):
+        # Zonder (geldige) sleutel: de gebruiker moet er eentje aanmaken in de juiste omgeving.
+        entries.append(Entry(t("menu.get_key"), url=app_url_for(base_url) + "/profile/notifications"))
     if update is not None:  # de klik opent de releasepagina; automatisch vervangen is een latere stap
         entries.append(Entry(t("menu.update", version=update.version), url=update.url))
     if state.status is Status.OFFLINE and state.updated_at:

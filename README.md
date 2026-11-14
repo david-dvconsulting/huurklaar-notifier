@@ -6,7 +6,7 @@ A menu bar app (Mac) and tray app (Windows) that shows notifications for tasks a
 
 ## Setup
 
-Choose **Instellingen…** (Settings) in the menu and enter the **Huurklaar API address** and the **notification key** (Huurklaar > My profile > Notifications). The address is stored in `~/Library/Application Support/Huurklaar Meldingen/config.json` (Mac) or `%APPDATA%\Huurklaar Meldingen\config.json` (Windows). The key is stored only in the Keychain (Mac) or the Windows Credential Manager, never in a file or a log. Only `https` is allowed, except for localhost.
+Choose **Instellingen…** (Settings) in the menu and enter the **Huurklaar API address** and the **notification key** (Huurklaar > My profile > Notifications). The address is filled in with the production address by default; only if you use the test or a local environment, replace it with the address from the table below. The address is stored in `~/Library/Application Support/Huurklaar Meldingen/config.json` (Mac) or `%APPDATA%\Huurklaar Meldingen\config.json` (Windows). The key is stored only in the Keychain (Mac) or the Windows Credential Manager, never in a file or a log. Only `https` is allowed, except for localhost.
 
 | Environment | App | API address to enter |
 |---|---|---|
@@ -15,6 +15,10 @@ Choose **Instellingen…** (Settings) in the menu and enter the **Huurklaar API 
 | Local development | http://localhost:5173 | `http://localhost:3000` |
 
 The key belongs to one environment: create it in the app of the same environment as the address. The page Huurklaar > My profile > Notifications also shows the right address, with a copy button.
+
+## One-click linking
+
+The app registers the URL scheme `huurklaar-meldingen://`. "Koppel de app" in Huurklaar (My profile > Notifications) opens it and fills in the address and the key in one click, after you confirm in the app. On the Mac this works as soon as the app has been started once from Applications. On Windows the installer registers the scheme, and the app also does it itself at every start.
 
 ## Development
 

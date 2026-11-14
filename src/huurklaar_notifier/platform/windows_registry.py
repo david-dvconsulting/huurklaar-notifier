@@ -6,14 +6,20 @@ Er wordt nooit onder HKLM geschreven: geen beheerdersrechten en alleen voor de h
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Callable
 from typing import Any
+
+from ..core.link import SCHEME as URL_SCHEME
 
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 RUN_VALUE = "HuurklaarMeldingen"  # dezelfde naam gebruikt de installer (installer/huurklaar-meldingen.iss)
 AUMID = "be.huurklaar.meldingen"
 AUMID_KEY = rf"Software\Classes\AppUserModelId\{AUMID}"
 APP_NAME = "Huurklaar Meldingen"
+URL_SCHEME_KEY = rf"Software\Classes\{URL_SCHEME}"
+# Van onder naar boven: DeleteKey kan geen sleutel met subsleutels wissen. De installer schrijft dezelfde sleutels.
+_URL_SCHEME_SUBKEYS = (r"shell\open\command", r"shell\open", "shell", "DefaultIcon")
 
 
 def _winreg() -> Any:
@@ -76,3 +82,32 @@ def register_app_id(display_name: str = APP_NAME, icon_path: str | None = None, 
         w.SetValueEx(key, "DisplayName", 0, w.REG_SZ, display_name)
         if icon_path:
             w.SetValueEx(key, "IconUri", 0, w.REG_SZ, icon_path)
+
+
+def link_command(frozen: bool, executable: str) -> str:
+    """De opdrachtregel voor het URL-schema: dezelfde als 'start bij aanmelden', plus de link als argument."""
+    return f'{run_command(frozen, executable)} "%1"'
+
+
+def register_url_scheme(command: str, icon: str | None = None, winreg: Any = None) -> None:
+    """Registreert `huurklaar-meldingen://` onder HKCU, zodat een klik in de browser de app start met de link."""
+    w = winreg or _winreg()
+
+    def put(path: str, value: str, name: str | None = None) -> None:
+        with w.CreateKeyEx(w.HKEY_CURRENT_USER, path, 0, w.KEY_SET_VALUE) as key:
+            w.SetValueEx(key, name or "", 0, w.REG_SZ, value)
+
+    put(URL_SCHEME_KEY, f"URL:{APP_NAME}")
+    put(URL_SCHEME_KEY, "", "URL Protocol")  # de lege waarde die Windows als schema herkent
+    if icon:
+        put(rf"{URL_SCHEME_KEY}\DefaultIcon", f'"{icon}",0')
+    put(rf"{URL_SCHEME_KEY}\shell\open\command", command)
+
+
+def unregister_url_scheme(winreg: Any = None) -> None:
+    """Verwijdert het URL-schema (subsleutels eerst). Een afwezige sleutel is ook goed."""
+    w = winreg or _winreg()
+    for sub in (*_URL_SCHEME_SUBKEYS, ""):
+        path = rf"{URL_SCHEME_KEY}\{sub}" if sub else URL_SCHEME_KEY
+        with contextlib.suppress(FileNotFoundError):
+            w.DeleteKey(w.HKEY_CURRENT_USER, path)
