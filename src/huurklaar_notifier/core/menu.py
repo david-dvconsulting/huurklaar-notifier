@@ -31,6 +31,7 @@ class Entry:
     checked: bool | None = None
     children: tuple[Entry, ...] = ()
     separator: bool = False
+    default: bool = False  # het standaarditem: een linksklik op het tray-icoon voert dit uit (Windows)
 
 
 SEPARATOR = Entry("", separator=True)
@@ -146,7 +147,8 @@ def build_menu(
     if snap and state.status in (Status.ATTENTION, Status.IDLE):
         link = _app_url(list(snap.items))
         if link:
-            entries += [SEPARATOR, Entry(t("menu.open_app"), url=link)]
+            # Het standaarditem: pystray voert bij een linksklik het item met default=True uit.
+            entries += [SEPARATOR, Entry(t("menu.open_app"), url=link, default=True)]
 
     languages = tuple(
         Entry(
@@ -156,10 +158,13 @@ def build_menu(
         )
         for code in ("auto", *LANGUAGES)
     )
+    # Zonder "Huurklaar openen" (geen link, of niet ingesteld) is de instelling het standaarditem.
+    # Er is altijd precies één: wie ook maar één `default` zet, verandert deze regel niet.
+    settings = Entry(t("menu.settings"), action=SETTINGS, default=not any(e.default for e in entries))
     entries += [
         SEPARATOR,
         Entry(t("menu.refresh"), action=REFRESH),
-        Entry(t("menu.settings"), action=SETTINGS),
+        settings,
         Entry(t("menu.language"), children=languages),
         Entry(t("menu.autostart"), action=AUTOSTART, checked=autostart),
         SEPARATOR,

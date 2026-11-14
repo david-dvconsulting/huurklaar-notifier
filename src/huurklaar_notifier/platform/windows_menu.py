@@ -37,6 +37,7 @@ def build_items(
                     _action(e, on_entry) if actionable else None,
                     checked=None if e.checked is None else _checked(e.checked),
                     enabled=actionable,
+                    default=e.default,
                 )
             )
     return out
