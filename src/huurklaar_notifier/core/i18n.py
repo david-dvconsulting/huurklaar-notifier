@@ -40,6 +40,9 @@ NL = {
     "dialog.key_keep": "Laat leeg om de bewaarde sleutel te behouden.",
     "dialog.save": "Bewaren",
     "dialog.cancel": "Annuleren",
+    "dialog.invalid_link": "Deze koppellink is niet geldig. Maak in Huurklaar (Mijn profiel > Meldingen) een nieuwe sleutel aan en probeer opnieuw.",
+    "dialog.link_confirm": "Huurklaar Meldingen koppelen met {host}? Een bewaarde sleutel wordt vervangen.",
+    "dialog.link_button": "Koppelen",
     "dialog.invalid_url": "Dat adres is niet geldig. Gebruik een adres dat met https:// begint.",
     "dialog.invalid_key": "Dat is geen geldige meldingssleutel. Hij begint met hkn_.",
 }
@@ -80,6 +83,9 @@ FR = {
     "dialog.key_keep": "Laissez vide pour conserver la clé enregistrée.",
     "dialog.save": "Enregistrer",
     "dialog.cancel": "Annuler",
+    "dialog.invalid_link": "Ce lien de couplage n'est pas valide. Créez une nouvelle clé dans Huurklaar (Mon profil > Notifications) et réessayez.",
+    "dialog.link_confirm": "Associer Huurklaar Notifications à {host} ? Une clé enregistrée sera remplacée.",
+    "dialog.link_button": "Associer",
     "dialog.invalid_url": "Cette adresse n'est pas valide. Utilisez une adresse commençant par https://.",
     "dialog.invalid_key": "Ce n'est pas une clé de notification valide. Elle commence par hkn_.",
 }
@@ -120,6 +126,9 @@ EN = {
     "dialog.key_keep": "Leave empty to keep the stored key.",
     "dialog.save": "Save",
     "dialog.cancel": "Cancel",
+    "dialog.invalid_link": "This link is not valid. Create a new key in Huurklaar (My profile > Notifications) and try again.",
+    "dialog.link_confirm": "Link Huurklaar Notifications to {host}? A stored key will be replaced.",
+    "dialog.link_button": "Link",
     "dialog.invalid_url": "That address is not valid. Use an address starting with https://.",
     "dialog.invalid_key": "That is not a valid notification key. It starts with hkn_.",
 }

@@ -6,6 +6,7 @@ GUI-vrij: deze module importeert nooit AppKit, pystray of tkinter.
 
 from __future__ import annotations
 
+import logging
 import queue
 import threading
 from typing import Protocol
@@ -13,8 +14,11 @@ from typing import Protocol
 from .api import InvalidKeyError, InvalidUrlError
 from .controller import Controller
 from .i18n import translate
+from .link import link_host, parse_link
 from .menu import AUTOSTART, LANGUAGE_PREFIX, QUIT, REFRESH, SETTINGS, Entry
 from .state import Toast
+
+log = logging.getLogger(__name__)
 
 
 class AppUi(Protocol):
@@ -28,6 +32,9 @@ class AppUi(Protocol):
 
     def alert(self, message: str) -> None:
         """Toont een (al vertaalde) boodschap."""
+
+    def confirm(self, message: str) -> bool:
+        """Toont een (al vertaalde) ja/nee-vraag. `True` = bevestigd. Blokkeert; nooit op de UI-thread."""
 
     def request_rebuild(self) -> None:
         """Het menu moet bij de volgende tik opnieuw getekend worden."""
@@ -80,6 +87,36 @@ class AppActions:
             for t in toasts:
                 notifier.notify(t.title, t.body, t.url)
             rebuild = True
+
+    def apply_link(self, url: str) -> None:
+        """Stelt adres en sleutel in vanuit een `huurklaar-meldingen://koppel`-link, na bevestiging.
+
+        Blokkerend (dialogen): het platform roept dit op een eigen daemon-thread op. Staat er al een
+        instellingenvenster of een andere koppeldialoog open, dan doen we niets.
+        """
+        if not self._settings_lock.acquire(blocking=False):
+            return
+        try:
+            lang = self.c.language
+            link = parse_link(url)
+            if link is None:
+                self.ui.alert(translate(lang, "dialog.invalid_link"))
+                return
+            api, key = link
+            # Zonder bevestiging zou een webpagina die een link opent de app stil naar een vreemde server sturen
+            # en de bewaarde sleutel overschrijven. De vraag toont enkel de host, nooit de sleutel of de URL.
+            if not self.ui.confirm(translate(lang, "dialog.link_confirm", host=link_host(api))):
+                return
+            try:
+                self.c.configure(api, key)
+            except (InvalidUrlError, InvalidKeyError):
+                self.ui.alert(translate(lang, "dialog.invalid_link"))
+                return
+            self.ui.request_rebuild()
+        except Exception as e:  # een kapotte link mag de app niet laten vastlopen; enkel het type loggen
+            log.warning("Koppelen mislukt: %s", type(e).__name__)
+        finally:
+            self._settings_lock.release()
 
     def settings(self) -> None:
         """De instellingenflow. Draait op een eigen thread, want de dialoog blokkeert."""
