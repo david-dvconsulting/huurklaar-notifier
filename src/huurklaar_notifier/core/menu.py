@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Hashable, Iterable
 from dataclasses import dataclass
+from datetime import date
 
 from .. import __version__
 from .api import is_openable
@@ -62,14 +64,70 @@ def kind_label(lang: str, kind: str) -> str:
     return translate(lang, key if key in NL else "kind.other")
 
 
+_ISO_DATUM = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+
+
+def due_label(due_date: str | None, today: date, lang: str) -> str | None:
+    """Relatieve vervaldatum voor het menu: 'vandaag', 'morgen', 'over n d' of 'n d te laat'.
+
+    Geeft `None` bij een ontbrekende of ongeldige datum en bij een datum meer dan 7 dagen vooruit: dan
+    toont het menu niets extra's. Werpt nooit, want een rare waarde van de server mag het menu niet breken.
+    """
+    if not isinstance(due_date, str) or not _ISO_DATUM.fullmatch(due_date):
+        return None
+    try:
+        due = date.fromisoformat(due_date)
+    except ValueError:  # bv. een maand 13 of een dag 40
+        return None
+    days = (due - today).days
+    if days < 0:
+        return translate(lang, "due.overdue_days", n=-days)
+    if days == 0:
+        return translate(lang, "due.today")
+    if days == 1:
+        return translate(lang, "due.tomorrow")
+    if days <= 7:
+        return translate(lang, "due.in_days", n=days)
+    return None
+
+
+_MIN_TITLE = 12  # korter maken we een titel niet; daarna komt het pand aan de beurt
+
+
+def _cut(text: str, room: int) -> str:
+    if len(text) <= room:
+        return text
+    return text[: room - 1] + "…" if room > 0 else ""
+
+
+def _fit(before: str, title: str, where: str = "", after: str = "") -> str:
+    """`before + title + where + after` binnen MAX_LABEL.
+
+    Eerst wordt de titel ingekort (tot `_MIN_TITLE`), daarna het pand (`where`). `after`, bv. de
+    vervaldatum, blijft heel: dat is wat de gebruiker in één oogopslag moet kunnen lezen.
+    """
+    room = MAX_LABEL - len(before) - len(where) - len(after)
+    title = _cut(title, max(room, _MIN_TITLE))
+    where = _cut(where, MAX_LABEL - len(before) - len(title) - len(after))
+    return _shorten(before + title + where + after)
+
+
 def build_menu(
-    state: State, lang: str, language_setting: str, autostart: bool, update: Release | None = None
+    state: State,
+    lang: str,
+    language_setting: str,
+    autostart: bool,
+    update: Release | None = None,
+    today: date | None = None,
 ) -> list[Entry]:
+    if today is None:
+        today = date.today()
     t = lambda key, **p: translate(lang, key, **p)  # noqa: E731
     entries: list[Entry] = [Entry(status_line(state, lang), enabled=False)]
     if update is not None:  # de klik opent de releasepagina; automatisch vervangen is een latere stap
         entries.append(Entry(t("menu.update", version=update.version), url=update.url))
-    if state.status is Status.OFFLINE and state.updated_at:
+    # Ook bij ATTENTION en IDLE: zo ziet de gebruiker hoe recent de lijst is.
+    if state.status in (Status.OFFLINE, Status.ATTENTION, Status.IDLE) and state.updated_at:
         entries.append(Entry(t("status.updated", time=state.updated_at), enabled=False))
 
     snap = state.snapshot
@@ -78,7 +136,9 @@ def build_menu(
         for item in snap.items[:MAX_MENU_ITEMS]:
             prefix = "⚠️ " if item.overdue else ""
             where = " — " + item.property_label if item.property_label else ""
-            label = _shorten(f"{prefix}{kind_label(lang, item.kind)}: {item.title}{where}")
+            due = due_label(item.due_date, today, lang)
+            after = " · " + due if due else ""
+            label = _fit(f"{prefix}{kind_label(lang, item.kind)}: ", item.title, where, after)
             entries.append(Entry(label, url=item.href if is_openable(item.href) else None))
         rest = snap.total - min(len(snap.items), MAX_MENU_ITEMS)
         if rest > 0:
