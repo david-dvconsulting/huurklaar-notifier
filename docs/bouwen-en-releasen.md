@@ -10,6 +10,13 @@ Voor wie lokaal wil bouwen of een nieuwe versie wil uitbrengen. Alles is gratis:
 - Een tag die niet de vorm `vX.Y.Z` of `vX.Y.Z-rc.N` heeft, stopt de workflow vóór er iets gebouwd wordt (`python3 scripts/set-version.py <tag> --check` probeert het lokaal).
 - Daarna controleert de workflow in het gebouwde pakket dat de app hetzelfde nummer meldt (`--version`, `Info.plist`).
 
+## Welke Macs
+
+- De Mac-app is enkel voor **Apple Silicon** (M1 of nieuwer, macOS 11 of nieuwer). Intel-Macs worden niet ondersteund: beslist in KAN-289 (optie C). Apple stopt met Intel-Macs na macOS 26.
+- De build draait op `macos-latest` (arm64) met het lock `requirements/release-mac.txt` (`aarch64-apple-darwin`).
+- `scripts/build-mac.sh` zet `LSMinimumSystemVersion` op `11.0` in `Info.plist`.
+- De stap "Controles in het gebouwde pakket" in de job `mac` van `release.yml` controleert dat `lipo -archs` exact `arm64` meldt en dat `LSMinimumSystemVersion` `11.0` is.
+
 ## Een release maken
 
 1. Zorg dat `main` groen is en alles bevat wat erin moet.
@@ -40,7 +47,7 @@ Onder **Actions > Release > Run workflow** kies je een tag-naam (bv. `v0.0.1-rc.
 - `requirements/release-mac.txt` (Python 3.13, `aarch64-apple-darwin`) en `requirements/release-windows.txt` (Python 3.13, `x86_64-pc-windows-msvc`), elk met de extra's van het platform plus `dev` (PyInstaller, ruff, pytest) en met alle indirecte afhankelijkheden.
 - `requirements/release-build.in` voegt `setuptools` toe, de build-backend van het project. Zo hoeft `pip install --no-build-isolation` niets zonder hash van PyPI te halen.
 - De workflow doet `pip install --require-hashes -r requirements/release-<platform>.txt` en daarna `pip install --no-deps --no-build-isolation -e .`. `scripts/build-windows.ps1` krijgt in de release `-SkipInstall`, anders installeert het script nog eens zonder hashes. Lokaal (zonder die schakelaar) werkt het script zoals voorheen.
-- Het Mac-lock is voor Apple Silicon omdat `macos-latest` dat is en `scripts/build-mac.sh` voor de eigen architectuur bouwt (geen universal2). Wil je later Intel of universal2 ondersteunen, dan hoort daar een eigen lock bij.
+- Het Mac-lock is voor Apple Silicon omdat `macos-latest` dat is en `scripts/build-mac.sh` voor de eigen architectuur bouwt (geen universal2). Dat is een bewuste keuze (KAN-289, optie C): Intel-Macs worden niet ondersteund. Wil je later Intel of universal2 ondersteunen, dan moet je minstens: universal2-Python (python.org) in de workflow zetten, `--target-arch universal2` aan PyInstaller meegeven, ervoor zorgen dat elke binaire wheel universal2 is (Pillow bijvoorbeeld sluit je uit of vervang je), de `lipo`-controle in `release.yml` aanpassen en de README, de downloadpagina en `LSMinimumSystemVersion` bijwerken. Een aparte Intel-build zou een eigen runner en een eigen lock voor `x86_64-apple-darwin` nodig hebben.
 - De **gewone CI (`ci.yml`) gebruikt bewust de ranges** uit `pyproject.toml`: zo merk je vroeg dat een nieuwe versie iets breekt, ook als de release nog op de oude versie staat.
 - Dependabot (`.github/dependabot.yml`, ecosystem `pip`, map `/requirements`, wekelijks) stelt updates van de locks voor als pull request. Omdat `ci.yml` de locks niet gebruikt, test `.github/workflows/release-locks.yml` ze apart: bij elke wijziging aan `requirements/**` of `pyproject.toml` installeert die workflow de lock op Mac en Windows zoals de release dat doet, en draait hij `pip check`, de tests en de self-test. Controleer in een Dependabot-PR dat de hashes mee bijgewerkt zijn; lukt dat niet, vernieuw het lock dan zelf (hieronder).
 - Niet gedekt: Inno Setup, dat de Windows-job via Chocolatey installeert.

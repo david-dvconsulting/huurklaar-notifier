@@ -17,6 +17,7 @@ lock() {
     -o "$out" "$@"
 }
 
-# macos-latest is Apple Silicon en build-mac.sh bouwt voor de eigen architectuur (geen --target-arch).
+# Enkel Apple Silicon, bewust (KAN-289): macos-latest is arm64 en build-mac.sh bouwt voor de eigen architectuur
+# (geen --target-arch). Intel-Macs worden niet ondersteund, dus er is geen x86_64- of universal2-lock.
 lock aarch64-apple-darwin mac requirements/release-mac.txt "$@"
 lock x86_64-pc-windows-msvc windows requirements/release-windows.txt "$@"

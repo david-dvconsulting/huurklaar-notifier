@@ -57,6 +57,11 @@ Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"
 [Registry]
 ; Dezelfde waarde als de app zelf schrijft (RUN_VALUE in platform/windows_registry.py); weg bij het verwijderen.
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "HuurklaarMeldingen"; ValueData: """{app}\{#AppExe}"""; Flags: uninsdeletevalue; Tasks: autostart
+; URL-schema huurklaar-meldingen:// (de knop 'Koppel de app'); zelfde sleutels als register_url_scheme in de app.
+Root: HKCU; Subkey: "Software\Classes\huurklaar-meldingen"; ValueType: string; ValueName: ""; ValueData: "URL:{#AppName}"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\huurklaar-meldingen"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
+Root: HKCU; Subkey: "Software\Classes\huurklaar-meldingen\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExe}"",0"
+Root: HKCU; Subkey: "Software\Classes\huurklaar-meldingen\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExe}"" ""%1"""
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchNow}"; Flags: nowait postinstall skipifsilent
