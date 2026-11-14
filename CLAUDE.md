@@ -35,7 +35,11 @@ Verificatie, dezelfde stappen als CI. Draai ze vóór je zegt dat iets klaar is:
   - `config.py`: `ConfigStore` schrijft atomair weg.
   - Verder: `updates.py`, `tls.py`, `version.py`, `selftest.py`.
 - `platform/` bevat per platform de sleutelopslag, de meldingen, de menubalk of tray en "start bij aanmelden".
-  - `macos.py`: rumps. `MenubarApp._tick` draait elke seconde op de hoofdthread.
+  - `macos.py`: rumps. `MenubarApp._tick` draait elke seconde op de hoofdthread. Houd het dun: wat zonder AppKit kan, staat in een pure module die ook op Windows-CI getest wordt.
+    - `macos_location.py` (puur): `is_transient_location` (dmg onder `/Volumes/`, App Translocation) en het schrijven en herstellen van de LaunchAgent. Vanaf een tijdelijk pad schrijft "Start bij aanmelden" niets, en `run()` herstelt bij de start een LaunchAgent met een verouderd pad (KAN-287). Enkel gebundeld (`sys.frozen`): in ontwikkeling is `sys.executable` een Python.
+    - `settings_dialog.py` (puur) en `macos_settings.py` (AppKit): het instellingenvenster in één NSAlert (KAN-288). AppKit enkel op de hoofdthread: `run_on_main` plant het venster in met `AppHelper.callAfter` en wacht. Alleen het openen heeft een time-out; daarna mag de gebruiker zo lang typen als hij wil. Lukt het venster niet, dan volgt de osascript-terugval.
+    - Een app zonder Dock-icoon (`LSUIElement`) krijgt Cmd+V enkel in een tekstveld met een Edit-menu in `NSApp.mainMenu` (`ensure_edit_menu`), en een venster komt enkel vooraan na `activateIgnoringOtherApps_`.
+    - `osascript`-dialogen (`alert`, `ask`) blokkeren tot de gebruiker klikt: nooit op de hoofdthread terwijl rumps draait, maar op een daemon-thread.
   - `windows.py`: alleen importeerbaar op Windows. `TrayApp._loop` draait op een eigen thread.
 - `testing/` bevat de nep-server, nep-GitHub en het nep-platform. De tests en `--selftest` gebruiken ze allebei.
 
@@ -64,3 +68,4 @@ Verificatie, dezelfde stappen als CI. Draai ze vóór je zegt dat iets klaar is:
 - **Werkwijze per Jira-ticket**: één branch `kan-<taak>-<korte-omschrijving>` en één PR per taak, met één commit per sub-task. Een commit heet `KAN-<sub-task>: <wat>` en legt in de body het waarom uit. De volledige werkwijze staat in de skill `kan-ticket` in de app-repo (`huurklaar/.claude/skills/kan-ticket/SKILL.md`). Zet geen interne links (Jira-site) in PR-teksten, want de repo is publiek.
 - **Git-identiteit**: commits staan op `david <david@dvconsulting.be>`, ingesteld in de repo-config (`git config user.email`). Is de globale git-config een ander adres, zet de identiteit dan per repo. Controleer de auteur met `git log -1 --format='%an <%ae>'` vóór je pusht: deze repo is publiek.
 - **Releases**: zie de README en `scripts/release.sh`. Verplaats of hergebruik nooit een tag. Een release maak je alleen op uitdrukkelijk verzoek.
+- **Enkel Apple Silicon** (KAN-289, optie C): de Mac-build is arm64 met `LSMinimumSystemVersion` 11.0, en `release.yml` controleert beide. Intel of universal2 invoeren is een nieuwe beslissing; wat er dan moet veranderen, staat in `docs/bouwen-en-releasen.md`. Een build- of workflowwijziging bewijs je met een proefrun van `Release` (workflow_dispatch op de branch, publiceert niets).
