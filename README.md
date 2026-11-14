@@ -38,6 +38,8 @@ CI (`.github/workflows/ci.yml`) runs lint, tests and the self-test on Windows an
 
 ## Mac
 
+**Requirements:** a Mac with an Apple chip (M1 or newer) running macOS 11 or newer. **Intel-based Macs are not supported.** The release build is arm64 only, and Apple ends support for Intel Macs after macOS 26. To check: Apple menu > About This Mac. "Chip: Apple M…" is supported, "Processor: Intel…" is not.
+
 The app is ad hoc signed (free, no Apple Developer account). Gatekeeper warns once: choose **Open Anyway** in System Settings > Privacy & Security.
 
 ## Windows
@@ -87,7 +89,7 @@ The release files have fixed names, so `https://github.com/david-dvconsulting/hu
 
 | File | What |
 |---|---|
-| `Huurklaar-Meldingen.dmg` | Mac (ad hoc signed) |
+| `Huurklaar-Meldingen.dmg` | Mac, Apple silicon only (ad hoc signed) |
 | `Huurklaar-Meldingen-Setup.exe` | Windows installer (recommended) |
 | `Huurklaar-Meldingen.exe` | Windows, single file, no installation |
 | `SHA256SUMS.txt` | checksums of the files above |
