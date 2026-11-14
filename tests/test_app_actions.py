@@ -7,7 +7,9 @@ import pytest
 
 from huurklaar_notifier.core.api import InvalidKeyError, InvalidUrlError
 from huurklaar_notifier.core.app_actions import AppActions
+from huurklaar_notifier.core.config import ConfigStore
 from huurklaar_notifier.core.controller import Controller
+from huurklaar_notifier.core.defaults import DEFAULT_BASE_URL
 from huurklaar_notifier.core.i18n import translate
 from huurklaar_notifier.core.menu import AUTOSTART, LANGUAGE_PREFIX, QUIT, REFRESH, SETTINGS, Entry
 from huurklaar_notifier.core.state import Toast
@@ -150,7 +152,7 @@ def test_instellingen_bewaren_adres_en_sleutel(acties, controller, ui, server):
     assert controller.config.base_url == server.url
     assert controller.platform.secrets.get() == FAKE_KEY
     assert ui.alerts == [] and ui.rebuilds == 1
-    assert ui.asked == [("nl", "", False)]
+    assert ui.asked == [("nl", DEFAULT_BASE_URL, False)]
 
 
 def test_lege_sleutel_houdt_de_bewaarde_sleutel(acties, controller, ui, server):
@@ -167,11 +169,26 @@ def test_geen_bewaarde_sleutel_wordt_doorgegeven_als_false(acties, ui):
     assert ui.asked[0][2] is False
 
 
-def test_annuleren_wijzigt_niets_en_herbouwt_niet(acties, controller, ui):
+def test_leeg_bewaard_adres_stelt_het_productieadres_voor(acties, controller, ui):
+    assert controller.config.base_url == ""
+    acties.settings()
+    assert ui.asked[0][1] == DEFAULT_BASE_URL
+
+
+def test_bewaard_adres_wordt_ongewijzigd_voorgesteld(acties, controller, ui, server):
+    controller.configure(server.url, FAKE_KEY)
+    ui.answer = None
+    acties.settings()
+    assert ui.asked[0][1] == server.url
+
+
+def test_annuleren_wijzigt_niets_en_herbouwt_niet(acties, controller, ui, tmp_path):
     ui.answer = None
     acties.settings()
     assert controller.config.base_url == "" and controller.platform.secrets.get() is None
     assert ui.alerts == [] and ui.rebuilds == 0
+    assert not (tmp_path / "config.json").exists()
+    assert ConfigStore(tmp_path).load().base_url == ""
 
 
 def test_ongeldig_adres_toont_de_adresmelding(acties, ui):

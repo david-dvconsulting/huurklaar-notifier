@@ -12,6 +12,7 @@ from typing import Protocol
 
 from .api import InvalidKeyError, InvalidUrlError
 from .controller import Controller
+from .defaults import DEFAULT_BASE_URL
 from .i18n import translate
 from .menu import AUTOSTART, LANGUAGE_PREFIX, QUIT, REFRESH, SETTINGS, Entry
 from .state import Toast
@@ -87,7 +88,8 @@ class AppActions:
             return  # er staat al een instellingenvenster open
         try:
             lang = self.c.language
-            answer = self.ui.ask_settings(lang, self.c.config.base_url, bool(self.c.platform.secrets.get()))
+            base_url = self.c.config.base_url or DEFAULT_BASE_URL
+            answer = self.ui.ask_settings(lang, base_url, bool(self.c.platform.secrets.get()))
             if answer is None:
                 return  # geannuleerd: niets wijzigen
             url, key = answer
