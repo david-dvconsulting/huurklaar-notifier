@@ -31,7 +31,7 @@ Verificatie, dezelfde stappen als CI. Draai ze vóór je zegt dat iets klaar is:
 - `core/` importeert nooit een GUI.
   - `api.py`: HTTP-client.
   - `models.py`: `parse_snapshot` blijft bewust tolerant voor nieuwe velden.
-  - `state.py`: `State` met statussen, back-off (`BACKOFF_MAX`) en de `seen`-logica (`_new_toasts`, `MAX_SEEN`).
+  - `state.py`: `State` met statussen, back-off (`BACKOFF_MAX`) en de `seen`-logica (`_new_toasts`, `MAX_SEEN`). Een poll geeft een `Delivery(toasts, withdraw)`: de nieuwe meldingen (`Toast` met `key` = item-id en `group` = soort, of `"summary"` voor beide) en de ids die uit `seen` verdwenen zijn. Bij een afgekapte lijst of een fout trekt ze niets in.
   - `controller.py`: `Controller` met `_lock`, `poll`, `configure`, `set_language` en `test_connection` (één aanvraag met de bewaarde instellingen, zonder toestand of `seen` te wijzigen).
   - `poller.py`: `Poller` en `UpdatePoller`, elk op een eigen thread.
   - `menu.py`: `build_menu` en `kind_label`. Nieuwe parameters van `build_menu` komen als keyword met een standaardwaarde (zoals `base_url`), zodat bestaande aanroepen blijven werken.
@@ -42,13 +42,16 @@ Verificatie, dezelfde stappen als CI. Draai ze vóór je zegt dat iets klaar is:
   - `config.py`: `ConfigStore` schrijft atomair weg.
   - Verder: `updates.py`, `tls.py`, `version.py`, `selftest.py`.
 - `platform/` bevat per platform de sleutelopslag, de meldingen, de menubalk of tray, "start bij aanmelden" en het URL-schema.
+  - `base.py`: de protocollen. Een `Notifier` heeft `notify(toast)` en `withdraw(keys)`, en werpt nooit. `drain` trekt eerst in en toont daarna.
   - `macos.py`: rumps. `MenubarApp._tick` draait elke seconde op de hoofdthread. Lees daar nooit de Keychain: dat kan een systeemvenster tonen en de menubalk laten hangen. Houd het dun: wat zonder AppKit kan, staat in een pure module die ook op Windows-CI getest wordt.
+    - `MacNotifier` gebruikt `request_id(key)` uit `macos_ids.py` (zonder AppKit, dus ook op Windows testbaar) als id en de groep als `threadIdentifier`.
     - `macos_location.py` (puur): `is_transient_location` (dmg onder `/Volumes/`, App Translocation) en het schrijven en herstellen van de LaunchAgent. Vanaf een tijdelijk pad schrijft "Start bij aanmelden" niets, en `run()` herstelt bij de start een LaunchAgent met een verouderd pad (KAN-287). Enkel gebundeld (`sys.frozen`): in ontwikkeling is `sys.executable` een Python.
     - `settings_dialog.py` (puur) en `macos_settings.py` (AppKit): het instellingenvenster in één NSAlert (KAN-288). AppKit enkel op de hoofdthread: `run_on_main` plant het venster in met `AppHelper.callAfter` en wacht. Alleen het openen heeft een time-out; daarna mag de gebruiker zo lang typen als hij wil. Lukt het venster niet, dan volgt de osascript-terugval.
     - Een app zonder Dock-icoon (`LSUIElement`) krijgt Cmd+V enkel in een tekstveld met een Edit-menu in `NSApp.mainMenu` (`ensure_edit_menu`), en een venster komt enkel vooraan na `activateIgnoringOtherApps_`.
     - `osascript`-dialogen (`alert`, `ask`, `confirm`) blokkeren tot de gebruiker klikt: nooit op de hoofdthread terwijl rumps draait, maar op een daemon-thread.
   - `macos_links.py`: ontvangt de koppellink als Apple Event `kAEGetURL`. De handler staat geregistreerd vóór de run-loop, zodat de link ook bij een koude start aankomt. Het schema staat in de Info.plist (`scripts/build-mac.sh`).
   - `windows.py`: alleen importeerbaar op Windows. `TrayApp._loop` draait op een eigen thread.
+  - `windows_notifier.py`: win11toast met `tag` = `toast_tag(key)` (sha1, 32 tekens; Windows staat hoogstens 64 toe) en de vaste groep `"hk"`. `clear_toast` zonder tag wist de hele groep, geef dus altijd een tag mee. win11toast is op de Mac niet geïnstalleerd: lees de API in de bron (`win11toast.py` in de GitHub-repo `GitHub30/win11toast`).
   - `windows_link.py`: Windows start voor een link een nieuw proces. Draait de app al, dan stuurt dat proces de link via een named pipe per gebruiker door. Over die pipe gaan enkel bytes, nooit pickle (`send`/`recv`). Het schema staat onder HKCU: de installer en `register_url_scheme` zetten het, de uninstaller en `--forget` verwijderen het.
 - `testing/` bevat de nep-server, nep-GitHub en het nep-platform. De tests en `--selftest` gebruiken ze allebei.
 

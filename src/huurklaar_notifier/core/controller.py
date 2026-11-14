@@ -13,7 +13,7 @@ from ..platform.base import Platform
 from .api import ApiClient, AuthError, InvalidKeyError, validate_base_url, validate_key
 from .config import Config, ConfigStore
 from .i18n import resolve_language
-from .state import FetchResult, State, Toast
+from .state import Delivery, FetchResult, State, Toast
 from .updates import DAY, Release, UpdateCheckError, fetch_latest_release, newer_than_current, release_url
 
 
@@ -87,7 +87,7 @@ class Controller:
         self.wake.set()
 
     # -- polling ---------------------------------------------------------------
-    def poll(self) -> list[Toast]:
+    def poll(self) -> Delivery:
         with self._lock:
             client = self._client()
             hhmm = time.strftime("%H:%M", time.localtime(self._clock()))
@@ -99,17 +99,17 @@ class Controller:
             # account. Verwerken zou `seen` van dat account terugzetten (configure wist het net) en
             # de status van het oude account tonen. We gooien het weg; `configure` wekt de poller al.
             if generation != self._generation:
-                return []
+                return Delivery()
             if isinstance(result, AuthError):
                 # Een geweigerde sleutel: de volgende poll leest de sleutel opnieuw uit de Keychain.
                 self._client_cache = None
             before = list(self.config.seen)
-            toasts = self.state.apply(result, self.config, self.language, hhmm)
+            delivery = self.state.apply(result, self.config, self.language, hhmm)
             # `seen` verandert enkel als er een melding bij komt of verdwijnt. Alleen dan schrijven we weg,
             # zodat een gewone poll niets naar de schijf stuurt.
             if self.config.seen != before:
                 self.store.save(self.config)
-            return toasts
+            return delivery
 
     def view(self) -> View:
         """Alles wat de UI nodig heeft, in één korte lock-sectie, zodat het menu een consistente kopie leest."""

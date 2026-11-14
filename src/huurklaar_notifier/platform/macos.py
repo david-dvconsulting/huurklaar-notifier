@@ -12,7 +12,6 @@ import queue
 import subprocess
 import sys
 import threading
-import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -34,8 +33,9 @@ from ..core.controller import Controller
 from ..core.i18n import translate
 from ..core.menu import Entry, MenuCache, build_menu, title_for
 from ..core.poller import Poller, UpdatePoller
-from ..core.state import Toast
+from ..core.state import Delivery, Toast
 from .keyring_store import KeyringSecretStore
+from .macos_ids import request_id
 from .macos_links import LinkHandler
 from .macos_location import (
     enable_launch_agent,
@@ -79,7 +79,12 @@ class _Delegate(NSObject):
 
 
 class MacNotifier:
-    def __init__(self) -> None:
+    def __init__(self, center=None) -> None:
+        """`center` is enkel voor tests: een nep-center, zonder delegate en zonder toestemmingsvraag."""
+        if center is not None:
+            self._center = center
+            self._delegate = None
+            return
         self._center = UNUserNotificationCenter.currentNotificationCenter()
         self._delegate = _Delegate.alloc().init()  # sterke verwijzing: het center houdt enkel een zwakke
         self._center.setDelegate_(self._delegate)
@@ -87,16 +92,28 @@ class MacNotifier:
             UNAuthorizationOptionAlert | UNAuthorizationOptionSound, lambda granted, err: None
         )
 
-    def notify(self, title: str, body: str, url: str | None) -> None:
-        content = UNMutableNotificationContent.alloc().init()
-        content.setTitle_(title)
-        content.setBody_(body)
-        content.setSound_(UNNotificationSound.defaultSound())
-        content.setUserInfo_({"url": url} if url else {})
-        request = UNNotificationRequest.requestWithIdentifier_content_trigger_(
-            f"hk-{time.time_ns()}", content, None
-        )
-        self._center.addNotificationRequest_withCompletionHandler_(request, lambda err: None)
+    def notify(self, toast: Toast) -> None:
+        """Toont een melding; dezelfde sleutel vervangt de vorige, en macOS stapelt per groep."""
+        try:
+            content = UNMutableNotificationContent.alloc().init()
+            content.setTitle_(toast.title)
+            content.setBody_(toast.body)
+            content.setSound_(UNNotificationSound.defaultSound())
+            content.setThreadIdentifier_(toast.group)
+            content.setUserInfo_({"url": toast.url} if toast.url else {})
+            request = UNNotificationRequest.requestWithIdentifier_content_trigger_(
+                request_id(toast.key), content, None
+            )
+            self._center.addNotificationRequest_withCompletionHandler_(request, lambda err: None)
+        except Exception as e:  # een fout in een melding mag de app nooit doen vallen
+            log.warning("Melding tonen mislukt: %s", type(e).__name__)
+
+    def withdraw(self, keys: list[str]) -> None:
+        """Haalt de meldingen van afgewerkte items weg uit het Berichtencentrum."""
+        try:
+            self._center.removeDeliveredNotificationsWithIdentifiers_([request_id(k) for k in keys])
+        except Exception as e:
+            log.warning("Meldingen intrekken mislukt: %s", type(e).__name__)
 
 
 class LaunchAgentAutostart:
@@ -277,12 +294,12 @@ class MenubarApp(rumps.App):
             "Huurklaar", title="", icon=str(resource("menubar.png")), template=True, quit_button=None
         )
         self.c = controller
-        self._results: queue.Queue[list[Toast]] = queue.Queue()
+        self._results: queue.Queue[Delivery] = queue.Queue()
         self._rebuild_needed = True
         self._menu_cache = MenuCache()
         self._poller = Poller(controller, self._results.put)
-        # Een gevonden update tekent het menu opnieuw (een lege lijst = geen meldingen, wel herbouwen).
-        self._updates = UpdatePoller(controller, lambda: self._results.put([]))
+        # Een gevonden update tekent het menu opnieuw (een lege `Delivery` = geen meldingen, wel herbouwen).
+        self._updates = UpdatePoller(controller, lambda: self._results.put(Delivery()))
         self._timer = rumps.Timer(self._tick, 1)
         # Bij een koude start via een koppellink komt het Apple Event pas na de eerste tik: de eerste start
         # wacht er even op, anders verdringt het instellingenvenster de koppelvraag (gezien met een lokale build).

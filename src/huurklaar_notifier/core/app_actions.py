@@ -18,7 +18,7 @@ from .i18n import translate
 from .link import link_host, parse_link
 from .menu import AUTOSTART, LANGUAGE_PREFIX, QUIT, REFRESH, SETTINGS, Entry
 from .models import Snapshot
-from .state import NotConfigured, Toast
+from .state import Delivery, NotConfigured, Toast
 
 log = logging.getLogger(__name__)
 
@@ -46,7 +46,9 @@ class AppUi(Protocol):
 
 
 class Notifier(Protocol):
-    def notify(self, title: str, body: str, url: str | None) -> None: ...
+    def notify(self, toast: Toast) -> None: ...
+
+    def withdraw(self, keys: list[str]) -> None: ...
 
 
 class AppActions:
@@ -83,19 +85,21 @@ class AppActions:
         elif action == QUIT:
             self.ui.quit()
 
-    def drain(self, results: queue.Queue[list[Toast]], notifier: Notifier) -> bool:
-        """Leest de queue leeg en toont de meldingen. Geeft terug of het menu herbouwd moet worden.
+    def drain(self, results: queue.Queue[Delivery], notifier: Notifier) -> bool:
+        """Leest de queue leeg: trekt opgeloste meldingen in en toont de nieuwe. Geeft terug of het menu herbouwd moet worden.
 
-        Ook een lege lijst telt: die betekent 'update gevonden, geen meldingen, wel herbouwen'.
+        Ook een lege `Delivery` telt: die betekent 'update gevonden, geen meldingen, wel herbouwen'.
         """
         rebuild = False
         while True:
             try:
-                toasts = results.get_nowait()
+                delivery = results.get_nowait()
             except queue.Empty:
                 return rebuild
-            for t in toasts:
-                notifier.notify(t.title, t.body, t.url)
+            if delivery.withdraw:
+                notifier.withdraw(delivery.withdraw)
+            for t in delivery.toasts:
+                notifier.notify(t)
             rebuild = True
 
     def apply_link(self, url: str) -> None:
