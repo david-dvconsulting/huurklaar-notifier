@@ -42,6 +42,10 @@ NL = {
     "dialog.cancel": "Annuleren",
     "dialog.invalid_url": "Dat adres is niet geldig. Gebruik een adres dat met https:// begint.",
     "dialog.invalid_key": "Dat is geen geldige meldingssleutel. Hij begint met hkn_.",
+    "dialog.connected": "Verbonden. {detail}.",
+    "dialog.key_rejected": "De sleutel werd geweigerd. Controleer of hij bij deze omgeving hoort (productie of test) en niet ingetrokken is.",
+    "dialog.unreachable": "Geen verbinding met dit adres. Controleer het adres en je internetverbinding.",
+    "dialog.unexpected": "Dit adres antwoordt, maar niet zoals de Huurklaar-API. Controleer het adres.",
 }
 
 FR = {
@@ -82,6 +86,10 @@ FR = {
     "dialog.cancel": "Annuler",
     "dialog.invalid_url": "Cette adresse n'est pas valide. Utilisez une adresse commençant par https://.",
     "dialog.invalid_key": "Ce n'est pas une clé de notification valide. Elle commence par hkn_.",
+    "dialog.connected": "Connecté. {detail}.",
+    "dialog.key_rejected": "La clé a été refusée. Vérifiez qu'elle correspond à cet environnement (production ou test) et qu'elle n'a pas été révoquée.",
+    "dialog.unreachable": "Aucune connexion avec cette adresse. Vérifiez l'adresse et votre connexion internet.",
+    "dialog.unexpected": "Cette adresse répond, mais pas comme l'API Huurklaar. Vérifiez l'adresse.",
 }
 
 EN = {
@@ -122,6 +130,10 @@ EN = {
     "dialog.cancel": "Cancel",
     "dialog.invalid_url": "That address is not valid. Use an address starting with https://.",
     "dialog.invalid_key": "That is not a valid notification key. It starts with hkn_.",
+    "dialog.connected": "Connected. {detail}.",
+    "dialog.key_rejected": "The key was rejected. Check that it belongs to this environment (production or test) and has not been revoked.",
+    "dialog.unreachable": "Could not connect to this address. Check the address and your internet connection.",
+    "dialog.unexpected": "This address responds, but not like the Huurklaar API. Check the address.",
 }
 
 CATALOG = {"nl": NL, "fr": FR, "en": EN}

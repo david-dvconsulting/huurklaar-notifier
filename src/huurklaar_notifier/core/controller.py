@@ -13,7 +13,7 @@ from ..platform.base import Platform
 from .api import ApiClient, AuthError, InvalidKeyError, validate_base_url, validate_key
 from .config import Config, ConfigStore
 from .i18n import resolve_language
-from .state import State, Toast
+from .state import FetchResult, State, Toast
 from .updates import DAY, Release, UpdateCheckError, fetch_latest_release, newer_than_current, release_url
 
 
@@ -140,6 +140,17 @@ class Controller:
             return None  # niets cachen: de volgende poll probeert het opnieuw
         self._client_cache = (self.config.base_url, key, client)
         return client
+
+    def test_connection(self) -> FetchResult:
+        """Vraagt één keer op met de bewaarde instellingen en geeft het resultaat terug, zonder iets te wijzigen.
+
+        Geen `apply`, geen `seen`, geen config en geen `_generation`: de poller blijft de enige die de toestand
+        bijwerkt. Zonder client (niet ingesteld) is het resultaat `NotConfigured()`.
+        """
+        with self._lock:
+            client = self._client()
+        # Net als in `poll`: de aanvraag duurt tot 10 s en gebeurt dus nooit met de lock.
+        return State.fetch(client)
 
     # -- updatecheck (KAN-121) -----------------------------------------------------
     @property

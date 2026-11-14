@@ -17,6 +17,7 @@ from huurklaar_notifier.testing.fake_server import FAKE_KEY
 from huurklaar_notifier.testing.fakes import FakePlatform, RecordingNotifier
 
 WACHT = 2  # seconden: threads in tests wachten nooit onbeperkt
+VERBONDEN = "Verbonden. 2 open, 1 te laat."  # de tellers van SAMPLE in de nep-server
 
 
 class NepUi:
@@ -151,7 +152,8 @@ def test_instellingen_bewaren_adres_en_sleutel(acties, controller, ui, server):
     acties.settings()
     assert controller.config.base_url == server.url
     assert controller.platform.secrets.get() == FAKE_KEY
-    assert ui.alerts == [] and ui.rebuilds == 1
+    # Na Bewaren test de app de verbinding en toont ze precies één boodschap (KAN-265).
+    assert ui.alerts == [VERBONDEN] and ui.rebuilds == 1
     assert ui.asked == [("nl", DEFAULT_BASE_URL, False)]
 
 
@@ -160,7 +162,7 @@ def test_lege_sleutel_houdt_de_bewaarde_sleutel(acties, controller, ui, server):
     ui.answer = (server.url, "")
     acties.settings()
     assert controller.platform.secrets.get() == FAKE_KEY
-    assert ui.alerts == []
+    assert ui.alerts == [VERBONDEN]
     assert ui.asked[0][2] is True  # de ui weet dat er al een sleutel bewaard is
 
 

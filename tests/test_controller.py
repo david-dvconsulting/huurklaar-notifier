@@ -5,11 +5,12 @@ import time
 
 import pytest
 
-from huurklaar_notifier.core.api import ApiClient, ApiError
+from huurklaar_notifier.core.api import ApiClient, ApiError, AuthError, NetworkError
 from huurklaar_notifier.core.config import ConfigStore
 from huurklaar_notifier.core.controller import Controller
+from huurklaar_notifier.core.models import ProtocolError, Snapshot
 from huurklaar_notifier.core.state import NotConfigured, State, Status
-from huurklaar_notifier.testing.fake_server import EMPTY, FAKE_KEY, SAMPLE
+from huurklaar_notifier.testing.fake_server import EMPTY, FAKE_KEY, SAMPLE, FakeServer
 from huurklaar_notifier.testing.fakes import FakePlatform
 
 ANTWOORD_BINNEN = 0.1  # seconden: de UI-thread mag nooit langer wachten
@@ -243,3 +244,88 @@ def test_leeg_antwoord_schrijft_niet_weg_als_seen_gelijk_blijft(geteld, server):
     geteld.schrijfacties.clear()
     geteld.poll()
     assert geteld.schrijfacties == []
+
+
+# -- test_connection (KAN-265) ---------------------------------------------------------
+
+
+def test_test_connection_geeft_een_snapshot_bij_een_goed_antwoord(controller):
+    assert isinstance(controller.test_connection(), Snapshot)
+
+
+def test_test_connection_geeft_authfout_bij_een_geweigerde_sleutel(controller):
+    controller.configure(controller.config.base_url, VERKEERDE_SLEUTEL)
+    assert isinstance(controller.test_connection(), AuthError)
+
+
+def test_test_connection_geeft_netwerkfout_zonder_server(tmp_path):
+    with FakeServer() as gesloten:
+        adres = gesloten.url  # na het sluiten luistert er niemand meer op deze poort
+    c = Controller(FakePlatform(tmp_path))
+    c.configure(adres, FAKE_KEY)
+    assert isinstance(c.test_connection(), NetworkError)
+
+
+def test_test_connection_geeft_protocolfout_bij_een_vreemd_antwoord(controller, server):
+    server.body = {"onbekend": True}
+    assert isinstance(controller.test_connection(), ProtocolError)
+
+
+def test_test_connection_geeft_apifout_bij_een_onverwachte_statuscode(controller, server):
+    server.status = 404
+    result = controller.test_connection()
+    assert isinstance(result, ApiError)
+    assert not isinstance(result, (AuthError, NetworkError))
+
+
+def test_test_connection_zonder_instellingen_geeft_notconfigured(tmp_path):
+    assert isinstance(Controller(FakePlatform(tmp_path)).test_connection(), NotConfigured)
+
+
+def test_test_connection_wijzigt_geen_toestand(geteld, server):
+    geteld.poll()  # seen en state krijgen een waarde
+    seen, status, snapshot = list(geteld.config.seen), geteld.state.status, geteld.state.snapshot
+    updated_at, failures = geteld.state.updated_at, geteld.state.failures
+    generation = geteld._generation
+    geteld.schrijfacties.clear()
+    server.body = {**SAMPLE, "items": [{**SAMPLE["items"][0], "id": "task-9", "title": "Nieuw"}]}
+    assert isinstance(geteld.test_connection(), Snapshot)
+    assert geteld.config.seen == seen
+    assert geteld.state.status is status
+    assert geteld.state.snapshot is snapshot
+    assert (geteld.state.updated_at, geteld.state.failures) == (updated_at, failures)
+    assert geteld._generation == generation
+    assert geteld.schrijfacties == []  # niets weggeschreven
+
+
+def test_test_connection_wijzigt_de_toestand_ook_niet_bij_een_fout(geteld):
+    geteld.poll()
+    status, snapshot = geteld.state.status, geteld.state.snapshot
+    geteld.platform.secrets.set(VERKEERDE_SLEUTEL)
+    geteld._client_cache = None
+    assert isinstance(geteld.test_connection(), AuthError)
+    assert geteld.state.status is status
+    assert geteld.state.snapshot is snapshot
+    assert geteld.state.failures == 0
+
+
+def test_test_connection_houdt_de_lock_niet_vast_tijdens_de_aanvraag(tmp_path, server):
+    gestart, vrijgeven = threading.Event(), threading.Event()
+    c = Controller(
+        FakePlatform(tmp_path),
+        client_factory=lambda url, key: TrageClient(url, key, gestart, vrijgeven),
+    )
+    c.configure(server.url, FAKE_KEY)
+    resultaat: list = []
+    t = threading.Thread(target=lambda: resultaat.append(c.test_connection()), daemon=True)
+    t.start()
+    try:
+        assert gestart.wait(timeout=2)
+        begin = time.monotonic()
+        c.view()  # de UI-thread neemt dezelfde lock
+        assert time.monotonic() - begin < ANTWOORD_BINNEN
+    finally:
+        vrijgeven.set()
+        t.join(timeout=3)
+    assert not t.is_alive()
+    assert isinstance(resultaat[0], Snapshot)

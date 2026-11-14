@@ -6,16 +6,20 @@ GUI-vrij: deze module importeert nooit AppKit, pystray of tkinter.
 
 from __future__ import annotations
 
+import logging
 import queue
 import threading
 from typing import Protocol
 
-from .api import InvalidKeyError, InvalidUrlError
+from .api import AuthError, InvalidKeyError, InvalidUrlError, NetworkError
 from .controller import Controller
 from .defaults import DEFAULT_BASE_URL
 from .i18n import translate
 from .menu import AUTOSTART, LANGUAGE_PREFIX, QUIT, REFRESH, SETTINGS, Entry
-from .state import Toast
+from .models import Snapshot
+from .state import NotConfigured, Toast
+
+log = logging.getLogger(__name__)
 
 
 class AppUi(Protocol):
@@ -99,6 +103,41 @@ class AppActions:
                 self.ui.alert(translate(lang, "dialog.invalid_url"))
             except InvalidKeyError:
                 self.ui.alert(translate(lang, "dialog.invalid_key"))
+            else:
+                self._show_connection_result(lang)
             self.ui.request_rebuild()
         finally:
             self._settings_lock.release()
+
+    def _show_connection_result(self, lang: str) -> None:
+        """Test de nieuwe instellingen en toont precies één boodschap. Mag de flow nooit breken."""
+        try:
+            result = self.c.test_connection()
+        except Exception as e:  # een onverwachte fout in de test mag de instellingenflow niet breken
+            log.warning("verbinding testen mislukt: %s", type(e).__name__)  # enkel het type, nooit gegevens
+            self.ui.alert(translate(lang, "dialog.unexpected"))
+            return
+        if isinstance(result, NotConfigured):
+            return  # er was niets om te testen: geen melding
+        # Kies op type, nooit op de fouttekst. AuthError en NetworkError zijn subklassen van ApiError: eerst die.
+        if isinstance(result, Snapshot):
+            message = translate(lang, "dialog.connected", detail=_snapshot_detail(result, lang))
+        elif isinstance(result, AuthError):
+            message = translate(lang, "dialog.key_rejected")
+        elif isinstance(result, NetworkError):
+            message = translate(lang, "dialog.unreachable")
+        else:  # ApiError, ProtocolError of een andere uitkomst: het adres antwoordt niet zoals de API
+            message = translate(lang, "dialog.unexpected")
+        self.ui.alert(message)
+
+
+def _snapshot_detail(snapshot: Snapshot, lang: str) -> str:
+    """De tellers zoals `status_line`: open en te laat, 'Niets te doen' bij nul, of 'tijdelijk uit'."""
+    if not snapshot.enabled:
+        return translate(lang, "status.disabled")
+    if snapshot.total <= 0:
+        return translate(lang, "status.idle")
+    detail = translate(lang, "status.tasks", n=snapshot.total)
+    if snapshot.overdue:
+        detail += ", " + translate(lang, "status.overdue", n=snapshot.overdue)
+    return detail
