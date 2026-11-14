@@ -82,10 +82,23 @@ class State:
         return max(self.snapshot.poll_after_seconds, MIN_POLL) * self._rng(0.8, 1.2)
 
     def _new_toasts(self, snap: Snapshot, config: Config, lang: str) -> list[Toast]:
+        """Geeft de meldingen die nu nieuw zijn en werkt `config.seen` bij.
+
+        Niet afgekapt: alleen ids die nu nog in de lijst staan blijven bewaard, dus een item dat
+        verdwijnt en terugkomt wordt opnieuw gemeld. Afgekapt (meer dan de lijst toont): ids die
+        even buiten de lijst vallen blijven bewaard, zodat een terugkerend item geen tweede melding krijgt.
+        """
         seen = set(config.seen)
         fresh = [i for i in snap.items if i.action_required and i.id not in seen]
-        # Alleen ids die nu nog bestaan blijven staan: een taak die verdwijnt en terugkomt meldt opnieuw.
-        config.seen = [i.id for i in snap.items if i.id in seen or i in fresh][:MAX_SEEN]
+        fresh_ids = {i.id for i in fresh}
+        current = [i.id for i in snap.items if i.id in seen or i.id in fresh_ids]
+        if snap.truncated:
+            in_list = {i.id for i in snap.items}
+            # Oude ids die niet in de lijst staan blijven achter de huidige ids, zonder dubbelen.
+            kept = [s for s in config.seen if s not in in_list]
+            config.seen = list(dict.fromkeys(current + kept))[:MAX_SEEN]
+        else:
+            config.seen = current[:MAX_SEEN]
         if not snap.enabled or not fresh:
             return []
         if len(fresh) > MAX_TOASTS:
