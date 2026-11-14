@@ -343,6 +343,9 @@ class MenubarApp(rumps.App):
             self.c.platform.autostart.is_enabled(),
             v.update,
             base_url=v.base_url,
+            paused_until=v.paused_until,
+            muted_kinds=v.muted_kinds,
+            daily_reminder=v.daily_reminder,
         )
         title = title_for(v.state)
         style = title_style(v.state)

@@ -88,7 +88,10 @@ def test_render_herbouwt_enkel_bij_verandering_en_laat_geen_register_achter(cont
         controller.set_language(("nl", "fr", "en")[i % 3])
         app._render()
     assert app.renders == 1001
-    assert len(registry()) - base <= ITEMS_PER_MENU + 5  # één menu met items, submenu en 7 talen
+    # Één menu met items, groepskoppen, submenu en 7 talen, plus de submenu's 'Meldingen pauzeren' (KAN-283) en
+    # 'Meldingen voor' (KAN-284) en het vinkje 'Dagelijkse herinnering' (KAN-285). Gemeten: 24, al na de
+    # eerste render en nog steeds na 1000 renders. Het register groeit dus niet.
+    assert len(registry()) - base <= ITEMS_PER_MENU + 11
 
 
 class _FakeButton:

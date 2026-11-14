@@ -143,9 +143,12 @@ class TrayApp:
             c.platform.autostart.is_enabled(),
             v.update,
             base_url=v.base_url,
+            paused_until=v.paused_until,
+            muted_kinds=v.muted_kinds,
+            daily_reminder=v.daily_reminder,
         )
         badge = badge_for(v.state)
-        title = tooltip(status_line(v.state, v.language), APP_NAME)
+        title = tooltip(status_line(v.state, v.language, v.paused_until), APP_NAME)
         if not self._menu_cache.changed(entries, (badge, title)):
             return  # niets veranderd: icoon en menu niet opnieuw bouwen
         try:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 from ..testing.fake_github import FakeGithub
@@ -27,7 +28,11 @@ def run(output: str | None = None) -> int:
     check(all(k == keys[0] for k in keys), "vertaalsleutels verschillen per taal")
 
     with FakeServer() as server, tempfile.TemporaryDirectory() as tmp:
-        c = Controller(FakePlatform(Path(tmp)))
+        # Vaste klok van 08:00, zodat de dagelijkse herinnering (vanaf 9:00) de telling van de meldingen niet
+        # verstoort, ongeacht het uur waarop de selftest draait.
+        t = time.localtime()
+        early = time.mktime((t.tm_year, t.tm_mon, t.tm_mday, 8, 0, 0, 0, 0, -1))
+        c = Controller(FakePlatform(Path(tmp)), clock=lambda: early)
         check(c.poll() == Delivery() and c.state.status is Status.NOT_CONFIGURED, "niet aangemeld")
         c.configure(server.url, FAKE_KEY)
         toasts = c.poll().toasts

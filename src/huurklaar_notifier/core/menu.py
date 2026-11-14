@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import time
 from collections.abc import Hashable, Iterable
 from dataclasses import dataclass
 from datetime import date
@@ -24,6 +25,10 @@ MAX_ACCOUNT = 24  # een lange accountnaam wordt ingekort, zodat de vervaldatum h
 # Acties die een platform afhandelt
 REFRESH, SETTINGS, AUTOSTART, QUIT = "refresh", "settings", "autostart", "quit"
 LANGUAGE_PREFIX = "language:"
+PAUSE_PREFIX = "pause:"
+PAUSE_HOUR, PAUSE_TOMORROW, PAUSE_OFF = "hour", "tomorrow", "off"
+KIND_PREFIX = "kind:"
+REMINDER = "reminder"
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,7 +70,17 @@ def title_style(state: State) -> Literal["normal", "alert"]:
     return "normal"
 
 
-def status_line(state: State, lang: str) -> str:
+def status_line(state: State, lang: str, paused_until: float = 0.0) -> str:
+    """De statusregel; tijdens een pauze (`paused_until` > 0) vooraan 'Gepauzeerd tot HH:MM'."""
+    line = _status_text(state, lang)
+    if paused_until > 0:
+        until = time.strftime("%H:%M", time.localtime(paused_until))
+        pause = translate(lang, "status.paused", time=until)
+        return pause if state.status is Status.IDLE else f"{pause} · {line}"
+    return line
+
+
+def _status_text(state: State, lang: str) -> str:
     if state.status is Status.ATTENTION and state.snapshot:
         text = translate(lang, "status.tasks", n=state.snapshot.total)
         if state.snapshot.overdue:
@@ -144,6 +159,22 @@ def group_items(items: Iterable[Item]) -> list[tuple[str, list[Item]]]:
     return [(key, group) for key, group in buckets.items() if group]
 
 
+def kind_entries(state: State, lang: str, muted_kinds: tuple[str, ...] = ()) -> tuple[Entry, ...]:
+    """Het submenu "Meldingen voor": de bekende soorten uit het antwoord, plus de uitgezette soorten.
+
+    In de volgorde van de groepen in het menu (`GROUP_ORDER`). Een soort die de server nieuw stuurt, krijgt
+    geen vinkje: zonder eigen naam zou ze gewoon 'Melding' heten en de gebruiker niets zeggen. Een uitgezette
+    soort blijft staan als ze niet meer in het antwoord zit: anders kun je ze niet meer aanzetten. Geeft een
+    leeg tuple als er niets te kiezen valt; dan hoort er geen submenu te komen.
+    """
+    present = {i.kind for i in state.snapshot.items} if state.snapshot else set()
+    return tuple(
+        Entry(kind_label(lang, kind), action=KIND_PREFIX + kind, checked=kind not in muted_kinds)
+        for kind in GROUP_ORDER
+        if kind in present or kind in muted_kinds
+    )
+
+
 def _distribute(groups: list[tuple[str, list[Item]]], limit: int) -> list[list[Item]]:
     """Round-robin over de groepen tot `limit` items of alles getoond is: elke groep krijgt minstens één item."""
     shown: list[list[Item]] = [[] for _ in groups]
@@ -193,11 +224,14 @@ def build_menu(
     *,
     base_url: str = "",
     today: date | None = None,
+    paused_until: float = 0.0,
+    muted_kinds: tuple[str, ...] = (),
+    daily_reminder: bool = True,
 ) -> list[Entry]:
     if today is None:
         today = date.today()
     t = lambda key, **p: translate(lang, key, **p)  # noqa: E731
-    entries: list[Entry] = [Entry(status_line(state, lang), enabled=False)]
+    entries: list[Entry] = [Entry(status_line(state, lang, paused_until), enabled=False)]
     if state.status in (Status.NOT_CONFIGURED, Status.AUTH_FAILED):
         # Zonder (geldige) sleutel: de gebruiker moet er eentje aanmaken in de juiste omgeving.
         entries.append(Entry(t("menu.get_key"), url=app_url_for(base_url) + "/profile/notifications"))
@@ -238,6 +272,13 @@ def build_menu(
         )
         for code in ("auto", *LANGUAGES)
     )
+    pause = [
+        Entry(t("menu.pause_hour"), action=PAUSE_PREFIX + PAUSE_HOUR),
+        Entry(t("menu.pause_tomorrow"), action=PAUSE_PREFIX + PAUSE_TOMORROW),
+    ]
+    if paused_until > 0:
+        pause.append(Entry(t("menu.pause_off"), action=PAUSE_PREFIX + PAUSE_OFF))
+    kinds = kind_entries(state, lang, muted_kinds)
     # Zonder "Huurklaar openen" (niet ingesteld, sleutel ongeldig, geen verbinding) is de instelling het
     # standaarditem.
     # Er is altijd precies één: wie ook maar één `default` zet, verandert deze regel niet.
@@ -247,6 +288,12 @@ def build_menu(
         Entry(t("menu.refresh"), action=REFRESH),
         settings,
         Entry(t("menu.language"), children=languages),
+        Entry(t("menu.pause"), children=tuple(pause)),
+    ]
+    if kinds:
+        entries.append(Entry(t("menu.kinds"), children=kinds))
+    entries += [
+        Entry(t("menu.reminder"), action=REMINDER, checked=daily_reminder),
         Entry(t("menu.autostart"), action=AUTOSTART, checked=autostart),
         SEPARATOR,
         Entry(t("menu.about", version=__version__), enabled=False),

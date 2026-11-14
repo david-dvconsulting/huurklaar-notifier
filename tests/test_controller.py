@@ -5,6 +5,7 @@ import time
 
 import pytest
 
+from conftest import vroeg_op_de_dag
 from huurklaar_notifier.core.api import ApiClient, ApiError, AuthError, NetworkError
 from huurklaar_notifier.core.config import ConfigStore
 from huurklaar_notifier.core.controller import Controller
@@ -66,6 +67,7 @@ def trage(tmp_path, server):
     c = Controller(
         FakePlatform(tmp_path),
         client_factory=lambda url, key: TrageClient(url, key, gestart, vrijgeven),
+        clock=vroeg_op_de_dag,  # vóór de dagelijkse herinnering
     )
     c.configure(server.url, FAKE_KEY)
     c.gestart, c.vrijgeven = gestart, vrijgeven

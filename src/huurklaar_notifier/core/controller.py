@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from .. import __version__
 from ..platform.base import Platform
 from .api import ApiClient, AuthError, InvalidKeyError, validate_base_url, validate_key
-from .config import Config, ConfigStore
+from .config import MAX_MUTED_KINDS, Config, ConfigStore
 from .i18n import resolve_language
 from .state import Delivery, FetchResult, State, Toast
 from .updates import DAY, Release, UpdateCheckError, fetch_latest_release, newer_than_current, release_url
@@ -31,6 +31,25 @@ class View:
     language_setting: str
     update: Release | None
     base_url: str  # het bewaarde API-adres; het menu kiest daarop de juiste app-omgeving
+    paused_until: float = 0.0  # enkel gezet als de pauze nu nog loopt
+    muted_kinds: tuple[str, ...] = ()
+    daily_reminder: bool = True
+
+
+REMINDER_HOUR = 9  # lokale tijd van de dagelijkse herinnering (KAN-285), elke dag
+
+
+def tomorrow_morning(now: float, hour: int = 8) -> float:
+    """08:00 lokale tijd op de dag na `now`. `mktime` met `tm_isdst=-1` houdt rekening met het zomeruur."""
+    t = time.localtime(now)
+    return time.mktime((t.tm_year, t.tm_mon, t.tm_mday + 1, hour, 0, 0, 0, 0, -1))
+
+
+def next_local_time(now: float, hour: int) -> float:
+    """Het eerstvolgende `hour`:00 lokale tijd strikt na `now`: vandaag als dat nog komt, anders morgen."""
+    t = time.localtime(now)
+    today = time.mktime((t.tm_year, t.tm_mon, t.tm_mday, hour, 0, 0, 0, 0, -1))
+    return today if today > now else tomorrow_morning(now, hour)
 
 
 class Controller:
@@ -68,6 +87,55 @@ class Controller:
             self.config.language = setting
             self.store.save(self.config)
 
+    # -- pauzeren (KAN-283) ----------------------------------------------------
+    def _active_pause(self) -> float:
+        """Het einde van de lopende pauze, of 0.0. Aanroepen onder `_lock`."""
+        until = self.config.paused_until
+        return until if self._clock() < until else 0.0
+
+    def set_pause(self, until: float) -> None:
+        """Pauzeert de meldingen tot `until` (epochseconden); 0.0 heft de pauze op."""
+        with self._lock:
+            self.config.paused_until = until
+            self.store.save(self.config)
+        # De pollus slaapt misschien nog op een lang interval: laat ze de wachttijd opnieuw bepalen.
+        self.wake.set()
+
+    def pause_for_hour(self) -> None:
+        self.set_pause(self._clock() + 3600)
+
+    def pause_until_tomorrow(self) -> None:
+        """Pauzeert tot 08:00 lokale tijd op de volgende kalenderdag."""
+        self.set_pause(tomorrow_morning(self._clock()))
+
+    def resume(self) -> None:
+        """Heft de pauze meteen op en wekt de poller, zodat een eventuele samenvatting snel komt."""
+        self.set_pause(0.0)
+        self.wake.set()
+
+    # -- meldingen per soort (KAN-284) -------------------------------------------
+    def toggle_kind(self, kind: str) -> None:
+        """Zet de meldingen voor een soort aan of uit. Een lege soort doet niets."""
+        if not kind:
+            return
+        with self._lock:
+            muted = self.config.muted_kinds
+            if kind in muted:
+                muted.remove(kind)
+            elif len(muted) < MAX_MUTED_KINDS:
+                muted.append(kind)
+            else:
+                return  # vol: niets gewijzigd, dus ook niets wegschrijven
+            self.store.save(self.config)
+
+    # -- dagelijkse herinnering (KAN-285) ------------------------------------------
+    def toggle_reminder(self) -> None:
+        """Zet de dagelijkse herinnering aan of uit."""
+        with self._lock:
+            self.config.daily_reminder = not self.config.daily_reminder
+            self.store.save(self.config)
+        self.wake.set()  # de pollus moet de wachttijd (met of zonder 09:00-grens) opnieuw bepalen
+
     # -- instellingen --------------------------------------------------------
     def configure(self, base_url: str, key: str | None) -> None:
         """Bewaart adres en (optioneel nieuwe) sleutel. Werpt InvalidUrlError of InvalidKeyError (beide ValueError) bij ongeldige invoer."""
@@ -80,6 +148,7 @@ class Controller:
                 self.platform.secrets.set(new_key)
             if new_key is not None or url != self.config.base_url:
                 self.config.seen = []  # ander account of adres: alles is weer nieuw
+                self.state.missed = 0  # de gemiste meldingen horen bij het vorige account
             self.config.base_url = url
             self._generation += 1  # een lopende poll met de oude client moet haar resultaat weggooien
             self._client_cache = None  # de volgende poll maakt een client met de nieuwe instellingen
@@ -104,10 +173,17 @@ class Controller:
                 # Een geweigerde sleutel: de volgende poll leest de sleutel opnieuw uit de Keychain.
                 self._client_cache = None
             before = list(self.config.seen)
-            delivery = self.state.apply(result, self.config, self.language, hhmm)
-            # `seen` verandert enkel als er een melding bij komt of verdwijnt. Alleen dan schrijven we weg,
-            # zodat een gewone poll niets naar de schijf stuurt.
-            if self.config.seen != before:
+            before_reminder = self.config.last_reminder
+            now = self._clock()
+            paused = now < self.config.paused_until
+            lt = time.localtime(now)
+            # De datum van vandaag, enkel als het uur van de herinnering bereikt is (anders `None`).
+            reminder_day = time.strftime("%Y-%m-%d", lt) if lt.tm_hour >= REMINDER_HOUR else None
+            delivery = self.state.apply(result, self.config, self.language, hhmm, paused, reminder_day)
+            # `seen` verandert enkel als er een melding bij komt of verdwijnt, `last_reminder` enkel eens per dag.
+            # Alleen dan schrijven we weg, zodat een gewone poll niets naar de schijf stuurt. Zonder wegschrijven
+            # van `last_reminder` komt er na een herstart een tweede herinnering op dezelfde dag.
+            if self.config.seen != before or self.config.last_reminder != before_reminder:
                 self.store.save(self.config)
             return delivery
 
@@ -120,11 +196,27 @@ class Controller:
                 self.config.language,
                 self._newer_release(self.config.update_version),
                 self.config.base_url,
+                self._active_pause(),
+                tuple(self.config.muted_kinds),
+                self.config.daily_reminder,
             )
 
     def next_delay(self) -> float | None:
         with self._lock:
-            return self.state.next_delay()
+            delay = self.state.next_delay()
+            if delay is None:
+                return None  # niet ingesteld of sleutel geweigerd: een pauze verandert daar niets aan
+            now = self._clock()
+            if now < self.config.paused_until:
+                # Het serverinterval kan uren duren (tot 6 u). Poll daarom vlak na het einde van de pauze, zodat de
+                # samenvatting op tijd komt en de statusregel verdwijnt. De marge van 1 s voorkomt dat
+                # `Event.wait` net te vroeg wakker wordt: die poll zou nog als gepauzeerd tellen.
+                delay = min(delay, self.config.paused_until - now + 1.0)
+            if self.config.daily_reminder:
+                # Ook het serverinterval (tot 6 u) mag de herinnering niet uren na 09:00 laten komen. Zelfde marge
+                # van 1 s als hierboven, zodat de poll na het wakker worden het uur zeker bereikt heeft.
+                delay = min(delay, next_local_time(now, REMINDER_HOUR) - now + 1.0)
+            return delay
 
     def _client(self) -> ApiClient | None:
         """Geeft de bewaarde client als het adres nog klopt, anders maakt er een met de sleutel uit de Keychain."""
