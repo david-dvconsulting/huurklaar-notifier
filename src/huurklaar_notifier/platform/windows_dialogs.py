@@ -14,6 +14,15 @@ def alert(lang: str, message: str) -> None:
     ctypes.windll.user32.MessageBoxW(0, message, translate(lang, "dialog.title"), 0x40)  # MB_ICONINFORMATION
 
 
+def confirm(lang: str, message: str) -> bool:
+    """Ja/nee-vraag, vooraan: de app start vanuit de browser, dus het venster moet boven alles komen."""
+    import ctypes
+
+    mb_yesno, mb_iconquestion, mb_setforeground, mb_topmost, idyes = 0x4, 0x20, 0x10000, 0x40000, 6
+    flags = mb_yesno | mb_iconquestion | mb_setforeground | mb_topmost
+    return ctypes.windll.user32.MessageBoxW(0, message, translate(lang, "dialog.title"), flags) == idyes
+
+
 def ask_settings(lang: str, base_url: str, key_saved: bool) -> tuple[str, str] | None:
     """Eén venster met adres en sleutel (verborgen). `None` = geannuleerd. Draait in een eigen thread, want
     de tray-lus bezet de hoofdthread en tkinter hoort bij de thread die het venster maakt."""

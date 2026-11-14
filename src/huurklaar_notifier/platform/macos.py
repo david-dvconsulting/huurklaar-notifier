@@ -35,11 +35,13 @@ from ..core.menu import Entry, MenuCache, build_menu, title_for
 from ..core.poller import Poller, UpdatePoller
 from ..core.state import Toast
 from .keyring_store import KeyringSecretStore
+from .macos_links import LinkHandler
 
 log = logging.getLogger(__name__)
 
 APP_NAME = "Huurklaar Meldingen"
 BUNDLE_ID = "be.huurklaar.meldingen"
+FIRST_RUN_LINK_WAIT = 2.0  # seconden, zie MenubarApp.__init__
 
 
 def resource(name: str) -> Path:
@@ -165,6 +167,25 @@ def alert(lang: str, message: str) -> None:
     )
 
 
+def confirm(lang: str, message: str) -> bool:
+    """Een ja/nee-vraag via osascript. De teksten gaan als argument mee (geen scriptinjectie).
+    `True` = bevestigd; annuleren (of sluiten) geeft een andere exitcode."""
+    script = (
+        "on run argv\n"
+        "display dialog (item 1 of argv) with title (item 2 of argv) "
+        "buttons {item 3 of argv, item 4 of argv} default button (item 4 of argv) "
+        "cancel button (item 3 of argv)\n"
+        "end run"
+    )
+    args = [
+        message,
+        translate(lang, "dialog.title"),
+        translate(lang, "dialog.cancel"),
+        translate(lang, "dialog.link_button"),
+    ]
+    return subprocess.run(["osascript", "-e", script, *args], capture_output=True).returncode == 0
+
+
 def ask_settings(lang: str, base_url: str, key_saved: bool) -> tuple[str, str] | None:
     """Twee opeenvolgende vragen: adres en sleutel (verborgen). `None` = geannuleerd."""
     url = ask(lang, translate(lang, "dialog.url_prompt"), base_url)
@@ -209,12 +230,17 @@ class MenubarApp(rumps.App):
         # Een gevonden update tekent het menu opnieuw (een lege lijst = geen meldingen, wel herbouwen).
         self._updates = UpdatePoller(controller, lambda: self._results.put([]))
         self._timer = rumps.Timer(self._tick, 1)
-        self.actions = AppActions(controller, _MacUi(self))
+        # Bij een koude start via een koppellink komt het Apple Event pas na de eerste tik: de eerste start
+        # wacht er even op, anders verdringt het instellingenvenster de koppelvraag (gezien met een lokale build).
+        self.actions = AppActions(controller, _MacUi(self), first_run_delay=FIRST_RUN_LINK_WAIT)
 
     def run(self, **kwargs) -> None:  # type: ignore[override]
         self._poller.start()
         self._updates.start()
         self._timer.start()
+        # Op de hoofdthread en vóór de run-loop: macOS levert het link-event pas na het starten van de app.
+        self._link_handler = LinkHandler(lambda url: self.actions.apply_link(url))
+        self._link_handler.register()
         super().run(**kwargs)
 
     # Alles hieronder draait op de hoofdthread.
@@ -293,6 +319,9 @@ class _MacUi:
 
     def alert(self, message: str) -> None:
         alert(self._app.c.language, message)
+
+    def confirm(self, message: str) -> bool:
+        return confirm(self._app.c.language, message)
 
     def request_rebuild(self) -> None:
         self._app._rebuild_needed = True

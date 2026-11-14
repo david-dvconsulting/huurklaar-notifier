@@ -15,6 +15,7 @@ from .api import AuthError, InvalidKeyError, InvalidUrlError, NetworkError
 from .controller import Controller
 from .defaults import DEFAULT_BASE_URL
 from .i18n import translate
+from .link import link_host, parse_link
 from .menu import AUTOSTART, LANGUAGE_PREFIX, QUIT, REFRESH, SETTINGS, Entry
 from .models import Snapshot
 from .state import NotConfigured, Toast
@@ -34,6 +35,9 @@ class AppUi(Protocol):
     def alert(self, message: str) -> None:
         """Toont een (al vertaalde) boodschap."""
 
+    def confirm(self, message: str) -> bool:
+        """Toont een (al vertaalde) ja/nee-vraag. `True` = bevestigd. Blokkeert; nooit op de UI-thread."""
+
     def request_rebuild(self) -> None:
         """Het menu moet bij de volgende tik opnieuw getekend worden."""
 
@@ -46,13 +50,19 @@ class Notifier(Protocol):
 
 
 class AppActions:
-    def __init__(self, controller: Controller, ui: AppUi) -> None:
+    def __init__(self, controller: Controller, ui: AppUi, first_run_delay: float = 0.0) -> None:
         self.c = controller
         self.ui = ui
         # Niet-blokkerend: een tweede klik op Instellingen terwijl het venster open staat doet niets.
         self._settings_lock = threading.Lock()
         self._first_run_lock = threading.Lock()
         self._first_run_done = False
+        self._link_received = (
+            threading.Event()
+        )  # een koppellink kwam binnen: de eerste start opent niets meer
+        # Zo lang wacht de eerste start op een koppellink. Op de Mac komt die bij een koude start als Apple Event
+        # pas na de eerste tik binnen; zonder wachten neemt het instellingenvenster de lock en valt de link weg.
+        self._first_run_delay = first_run_delay
 
     def handle(self, entry: Entry) -> None:
         action = entry.action
@@ -88,6 +98,43 @@ class AppActions:
                 notifier.notify(t.title, t.body, t.url)
             rebuild = True
 
+    def apply_link(self, url: str) -> None:
+        """Stelt adres en sleutel in vanuit een `huurklaar-meldingen://koppel`-link, na bevestiging.
+
+        Blokkerend (dialogen): het platform roept dit op een eigen daemon-thread op. Staat er al een
+        instellingenvenster of een andere koppeldialoog open, dan doen we niets.
+
+        Een link telt ook als eerste start. Start de app door de link (koude start), dan zou `first_run` anders
+        het instellingenvenster openen, dat de lock neemt en de koppelvraag verdringt.
+        """
+        with self._first_run_lock:
+            self._first_run_done = True
+            self._link_received.set()
+        if not self._settings_lock.acquire(blocking=False):
+            return
+        try:
+            lang = self.c.language
+            link = parse_link(url)
+            if link is None:
+                self.ui.alert(translate(lang, "dialog.invalid_link"))
+                return
+            api, key = link
+            # Zonder bevestiging zou een webpagina die een link opent de app stil naar een vreemde server sturen
+            # en de bewaarde sleutel overschrijven. De vraag toont enkel de host, nooit de sleutel of de URL.
+            if not self.ui.confirm(translate(lang, "dialog.link_confirm", host=link_host(api))):
+                return
+            try:
+                self.c.configure(api, key)
+            except (InvalidUrlError, InvalidKeyError):
+                self.ui.alert(translate(lang, "dialog.invalid_link"))
+                return
+            self._show_connection_result(lang)  # zelfde test en boodschap als na Bewaren (KAN-265)
+            self.ui.request_rebuild()
+        except Exception as e:  # een kapotte link mag de app niet laten vastlopen; enkel het type loggen
+            log.warning("Koppelen mislukt: %s", type(e).__name__)
+        finally:
+            self._settings_lock.release()
+
     def first_run(self) -> threading.Thread | None:
         """Opent één keer per proces de instellingen als er nog geen adres of sleutel is.
 
@@ -104,7 +151,12 @@ class AppActions:
 
     def _first_run_check(self) -> None:
         try:
-            if not self.c.config.base_url or not self.c.platform.secrets.get():
+            if self._link_received.wait(self._first_run_delay):
+                return  # een koppellink stelt de app in
+            # Nog eens ná het lezen van de sleutelopslag: dat kan even duren, en kwam er intussen een koppellink,
+            # dan mag een instellingenvenster de koppelvraag niet verdringen.
+            missing = not self.c.config.base_url or not self.c.platform.secrets.get()
+            if missing and not self._link_received.is_set():
                 self.settings()
         except Exception as e:  # de eerste start mag de app nooit laten stoppen; enkel het type loggen
             log.warning("eerste start mislukt: %s", type(e).__name__)

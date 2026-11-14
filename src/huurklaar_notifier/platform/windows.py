@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import contextlib
 import ctypes
+import getpass
 import logging
 import os
 import queue
@@ -27,9 +28,18 @@ from ..core.state import Toast
 from . import windows_dialogs
 from .keyring_store import KeyringSecretStore
 from .windows_icon import badge_for, render_icon
+from .windows_link import LinkServer, link_from_argv, pipe_address, send_link
 from .windows_menu import build_items, tooltip
 from .windows_notifier import WindowsNotifier
-from .windows_registry import APP_NAME, RunKeyAutostart, register_app_id, run_command
+from .windows_registry import (
+    APP_NAME,
+    RunKeyAutostart,
+    link_command,
+    register_app_id,
+    register_url_scheme,
+    run_command,
+    unregister_url_scheme,
+)
 from .windows_single import acquire
 
 log = logging.getLogger(__name__)
@@ -51,6 +61,14 @@ class WindowsPlatform:
         self.autostart = RunKeyAutostart(lambda: run_command(getattr(sys, "frozen", False), sys.executable))
         icon = resource("AppIcon.ico")
         register_app_id(APP_NAME, str(icon) if icon.exists() else None)
+        try:  # het URL-schema is een gemak: falen mag de app niet stoppen
+            exe = sys.executable
+            register_url_scheme(
+                link_command(getattr(sys, "frozen", False), exe),
+                exe if getattr(sys, "frozen", False) else None,
+            )
+        except Exception as e:
+            log.warning("URL-schema registreren mislukt: %s", type(e).__name__)
         self.notifier = WindowsNotifier()
 
     def data_dir(self) -> Path:
@@ -78,6 +96,19 @@ class TrayApp:
         self._updates = UpdatePoller(controller, lambda: self._results.put([]))
         self.actions = AppActions(controller, _WindowsUi(self))
         self.icon = pystray.Icon("huurklaar", render_icon(None), APP_NAME, menu=pystray.Menu())
+        self._link_server: LinkServer | None = None
+
+    def apply_link(self, url: str) -> None:
+        """Past een link toe op een eigen daemon-thread: `apply_link` toont dialogen en blokkeert."""
+        threading.Thread(target=self.actions.apply_link, args=(url,), name="link", daemon=True).start()
+
+    def start_link_server(self) -> None:
+        try:
+            server = LinkServer(pipe_address(_user_name()), self.apply_link)
+            server.start()
+            self._link_server = server
+        except Exception as e:  # zonder server werkt de app gewoon; enkel links van buiten niet
+            log.warning("link-server starten mislukt: %s", type(e).__name__)
 
     def run(self) -> None:
         self._poller.start()
@@ -136,6 +167,8 @@ class TrayApp:
         self._stop.set()
         self._poller.stop()
         self._updates.stop()
+        if self._link_server is not None:
+            self._link_server.stop()
         self.icon.stop()
 
 
@@ -154,6 +187,9 @@ class _WindowsUi:
     def alert(self, message: str) -> None:
         windows_dialogs.alert(self._app.c.language, message)
 
+    def confirm(self, message: str) -> bool:
+        return windows_dialogs.confirm(self._app.c.language, message)
+
     def request_rebuild(self) -> None:
         self._app._rebuild_needed = True
 
@@ -161,17 +197,32 @@ class _WindowsUi:
         self._app.shutdown()
 
 
-def run() -> int:
+def _user_name() -> str:
+    try:
+        return getpass.getuser()
+    except Exception:
+        return os.environ.get("USERNAME", "")
+
+
+def run(link: str | None = None) -> int:
+    link = link_from_argv([link]) if link else None  # enkel een echte koppellink, geen los argument
     if not acquire():
-        return 0  # draait al: een tweede tray-icoon heeft geen zin
-    TrayApp(Controller(WindowsPlatform())).run()
+        # Draait al: een tweede tray-icoon heeft geen zin. Een link geven we door aan de draaiende instantie.
+        if link:
+            send_link(link, pipe_address(_user_name()))
+        return 0
+    app = TrayApp(Controller(WindowsPlatform()))
+    app.start_link_server()
+    if link:
+        app.apply_link(link)
+    app.run()
     return 0
 
 
 def forget() -> int:
     """Voor de uninstaller: bewaarde sleutel en 'start bij aanmelden' opruimen. Mislukken is niet erg."""
     p = WindowsPlatform()
-    for step in (p.secrets.delete, lambda: p.autostart.set_enabled(False)):
+    for step in (p.secrets.delete, lambda: p.autostart.set_enabled(False), unregister_url_scheme):
         with contextlib.suppress(Exception):
             step()
     return 0

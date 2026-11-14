@@ -20,6 +20,11 @@ Verificatie, dezelfde stappen als CI. Draai ze vóór je zegt dat iets klaar is:
   `PYTHONPATH=src ../../huurklaar-notifier/.venv/bin/python -m huurklaar_notifier --selftest`
 - **Release-locks**: `release.yml` installeert enkel uit `requirements/release-mac.txt` en `requirements/release-windows.txt` (exacte versies met hashes, gemaakt met uv via `scripts/lock-release.sh`). Wijzig je de afhankelijkheden in `pyproject.toml`, draai dan dat script en commit de locks mee. `.github/workflows/release-locks.yml` test de locks op beide platformen; `ci.yml` gebruikt bewust de ranges.
 - **CI** (`.github/workflows/ci.yml`) draait lint, tests en selftest op `windows-latest` én `macos-latest`. `platform/windows.py` kan lokaal op een Mac niet draaien: houd Windows-logica testbaar in `platform/windows_*.py` en denk aan Windows-verschillen (bestandsvergrendeling, `os.replace` die faalt als een ander proces of een andere thread het doel vasthoudt).
+- **Lokale Mac-build** (bv. om het URL-schema of een dialoog te testen):
+  - In een worktree heeft `scripts/build-mac.sh` een `.venv` nodig. Maak tijdelijk een symlink naar de `.venv` van de hoofdkopie (`.venv` staat in `.gitignore`). De build bundelt dankzij `--paths src` de code van de worktree.
+  - Registreer de build met `lsregister -f "<pad>.app"` (`/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister`).
+  - De build gebruikt dezelfde bundle-id, Keychain-dienst (`be.huurklaar.meldingen`) en datamap (`~/Library/Application Support/Huurklaar Meldingen`) als een geïnstalleerde app. Kijk vooraf of die bestaan. Ruim nadien op: stop de app, `lsregister -u`, verwijder `build/`, `dist/` en de symlink, en verwijder de datamap en het Keychain-item als je test ze aanmaakte. Of het item van jou is, zie je aan `cdat` in `security find-generic-password -s be.huurklaar.meldingen` (zonder `-w`, dan toont het de sleutel niet).
+  - Een osascript-dialoog komt vooraan en neemt het toetsenbord over: een Enter of klik van wie aan de Mac werkt, beantwoordt ze. Zeg dat vooraf, en lees open dialogen met `ps -axo pid,command | grep '[o]sascript'`. `screencapture` werkt niet zonder schermopname-recht. Een dialoog sluiten zonder te bevestigen kan met `pkill -x osascript` (exitcode ≠ 0, dus "geannuleerd").
 
 ## Architectuur
 
@@ -32,12 +37,15 @@ Verificatie, dezelfde stappen als CI. Draai ze vóór je zegt dat iets klaar is:
   - `menu.py`: `build_menu` en `kind_label`. Nieuwe parameters van `build_menu` komen als keyword met een standaardwaarde (zoals `base_url`), zodat bestaande aanroepen blijven werken.
   - `defaults.py`: het standaard-API-adres (productie) en per bekend API-adres het webadres van de app (`app_url_for`). Verandert het API-domein, pas het dan enkel hier aan.
   - `app_actions.py`: `AppActions`, wat Mac en Windows delen: menuklikken afhandelen (`handle`), de resultatenqueue leeglezen (`drain`), de eerste start (`first_run`: opent de instellingen één keer per proces als adres of sleutel ontbreekt, en leest de sleutelopslag op een eigen thread) en de instellingenflow (`settings`, met een lock zodat er maar één venster tegelijk open staat; na Bewaren test ze de verbinding en toont ze precies één boodschap). Het platform levert enkel een `AppUi` met de dialoog, de alert, het herbouwen en het afsluiten. Kies een foutmelding op exceptietype (`InvalidUrlError`, `InvalidKeyError`, `AuthError`, `NetworkError` uit `api.py`; `AuthError` en `NetworkError` zijn subklassen van `ApiError`, test ze dus eerst), nooit op de fouttekst.
+  - `link.py`: `parse_link` en `link_host` voor de koppellink `huurklaar-meldingen://koppel?api=…&key=…` (KAN-267). Een link komt van buiten en is onbetrouwbaar, want elke webpagina kan er een openen. Daarom valideert `parse_link` strikt, en vraagt `AppActions.apply_link` altijd eerst bevestiging met enkel de host (`AppUi.confirm`). Na het koppelen toont ze dezelfde verbindingstest als Bewaren. Een link telt ook als eerste start: `first_run` opent daarna geen instellingenvenster meer, anders verdringt dat venster bij een koude start via de link de koppelvraag. Log nooit de link.
   - `i18n.py`: catalogus in NL, FR en EN, met NL als bron.
   - `config.py`: `ConfigStore` schrijft atomair weg.
   - Verder: `updates.py`, `tls.py`, `version.py`, `selftest.py`.
-- `platform/` bevat per platform de sleutelopslag, de meldingen, de menubalk of tray en "start bij aanmelden".
+- `platform/` bevat per platform de sleutelopslag, de meldingen, de menubalk of tray, "start bij aanmelden" en het URL-schema.
   - `macos.py`: rumps. `MenubarApp._tick` draait elke seconde op de hoofdthread. Lees daar nooit de Keychain: dat kan een systeemvenster tonen en de menubalk laten hangen.
+  - `macos_links.py`: ontvangt de koppellink als Apple Event `kAEGetURL`. De handler staat geregistreerd vóór de run-loop, zodat de link ook bij een koude start aankomt. Het schema staat in de Info.plist (`scripts/build-mac.sh`).
   - `windows.py`: alleen importeerbaar op Windows. `TrayApp._loop` draait op een eigen thread.
+  - `windows_link.py`: Windows start voor een link een nieuw proces. Draait de app al, dan stuurt dat proces de link via een named pipe per gebruiker door. Over die pipe gaan enkel bytes, nooit pickle (`send`/`recv`). Het schema staat onder HKCU: de installer en `register_url_scheme` zetten het, de uninstaller en `--forget` verwijderen het.
 - `testing/` bevat de nep-server, nep-GitHub en het nep-platform. De tests en `--selftest` gebruiken ze allebei.
 
 ## Threads: lees dit vóór je toestand of config aanraakt
