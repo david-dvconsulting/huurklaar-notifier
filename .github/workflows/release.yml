@@ -70,7 +70,10 @@ jobs:
       - name: Installeren
         run: |
           python3 -m venv .venv
-          .venv/bin/pip install --quiet -e ".[mac,dev]"
+          # Alleen vastgepinde pakketten met hash (requirements/release-mac.txt, zie docs/bouwen-en-releasen.md).
+          # Het project zelf zonder afhankelijkheden en zonder geïsoleerde build (setuptools staat in de lock).
+          .venv/bin/pip install --quiet --require-hashes -r requirements/release-mac.txt
+          .venv/bin/pip install --quiet --no-deps --no-build-isolation -e .
       - name: Controles vóór het bouwen
         run: |
           .venv/bin/ruff check .
@@ -122,7 +125,11 @@ jobs:
       - name: Installeren
         shell: pwsh
         run: |
-          python -m pip install --quiet -e ".[windows,dev]"
+          # Alleen vastgepinde pakketten met hash (requirements/release-windows.txt), project zelf zonder afhankelijkheden.
+          python -m pip install --quiet --require-hashes -r requirements/release-windows.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }   # pwsh stopt zelf niet bij een mislukt programma
+          python -m pip install --quiet --no-deps --no-build-isolation -e .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $iscc = Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not $iscc -and -not (Get-Command ISCC.exe -ErrorAction SilentlyContinue)) {
             choco install innosetup --no-progress -y
@@ -135,7 +142,7 @@ jobs:
           python -m pytest -q
       - name: .exe en setup.exe bouwen
         shell: pwsh
-        run: scripts/build-windows.ps1 -Version "${{ needs.prepare.outputs.version }}"
+        run: scripts/build-windows.ps1 -Version "${{ needs.prepare.outputs.version }}" -SkipInstall
       - name: Controles in het gebouwde pakket
         shell: pwsh
         env:

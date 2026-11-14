@@ -1,0 +1,9 @@
+# Houdt de vastgepinde releasebuilds bij (requirements/release-*.txt, met hashes); updates komen als PR door CI.
+# Zie docs/bouwen-en-releasen.md. De GitHub Actions in de workflows staan op SHA en worden hier niet beheerd.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /requirements
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

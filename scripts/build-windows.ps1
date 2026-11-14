@@ -1,10 +1,13 @@
 # Bouwt op Windows: Huurklaar-Meldingen.exe (één bestand), de map voor de installer en Huurklaar-Meldingen-Setup-<versie>.exe.
 # Elke stap faalt hard; de self-test draait vóór het bouwen én in de gebouwde .exe, met een time-out.
-# Gebruik (PowerShell, vanuit de repo):  scripts\build-windows.ps1 [-Version 1.2.3] [-SkipInstaller]
+# Gebruik (PowerShell, vanuit de repo):  scripts\build-windows.ps1 [-Version 1.2.3] [-SkipInstaller] [-SkipInstall]
+# -SkipInstall slaat het installeren van afhankelijkheden over; de releaseworkflow installeert zelf met hashcontrole
+# (requirements/release-windows.txt) en geeft dit mee, zodat er niets zonder hash bijkomt.
 # Vereist: Python 3.13 en (voor de installer) Inno Setup 6, https://jrsoftware.org/isinfo.php (gratis).
 param(
   [string]$Version = "",
   [switch]$SkipInstaller,
+  [switch]$SkipInstall,
   [int]$SelftestSeconds = 120
 )
 $ErrorActionPreference = "Stop"
@@ -32,7 +35,11 @@ function Selftest-Exe([string]$exe) {
 if (-not $Version) { $Version = (python -m huurklaar_notifier --version).Trim() }
 $Version = $Version.TrimStart("v")
 
-Run "afhankelijkheden installeren" { python -m pip install -e ".[windows,dev]" --quiet }
+if ($SkipInstall) {
+  Write-Host "==> afhankelijkheden installeren overgeslagen (-SkipInstall)"
+} else {
+  Run "afhankelijkheden installeren" { python -m pip install -e ".[windows,dev]" --quiet }
+}
 Run "self-test (Python)" { python -m huurklaar_notifier --selftest }
 Run "icoon maken" { python scripts/make-icons-windows.py }
 Run "versiebestand maken" { python scripts/make-version-file.py $Version build/version.txt }

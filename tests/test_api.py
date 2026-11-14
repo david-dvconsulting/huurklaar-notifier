@@ -3,6 +3,8 @@ import pytest
 from huurklaar_notifier.core.api import (
     ApiClient,
     AuthError,
+    InvalidKeyError,
+    InvalidUrlError,
     NetworkError,
     is_openable,
     validate_base_url,
@@ -42,11 +44,27 @@ def test_ongeldig_antwoord(server):
 
 
 @pytest.mark.parametrize(
-    "url", ["http://example.com", "ftp://x.be", "https://u:p@x.be", "https://x.be/?a=1", "x.be", ""]
+    "url",
+    [
+        "http://example.com",
+        "ftp://x.be",
+        "https://u:p@x.be",
+        "https://x.be/?a=1",
+        "x.be",
+        "",
+        # urlsplit werpt hier zelf een ValueError; ook die moet een InvalidUrlError worden.
+        "https://[::1",
+        "https://[abc]/x",
+    ],
 )
 def test_ongeldig_adres(url):
-    with pytest.raises(ValueError):
+    with pytest.raises(InvalidUrlError):
         validate_base_url(url)
+
+
+def test_ongeldig_adres_blijft_een_valueerror():
+    with pytest.raises(ValueError):
+        validate_base_url("ftp://x.be")
 
 
 def test_adres_genormaliseerd():
@@ -56,8 +74,13 @@ def test_adres_genormaliseerd():
 
 @pytest.mark.parametrize("key", ["", "abc", "hkn_ spatie in sleutel", "xyz_" + "a" * 40])
 def test_ongeldige_sleutel(key):
-    with pytest.raises(ValueError):
+    with pytest.raises(InvalidKeyError):
         validate_key(key)
+
+
+def test_ongeldige_sleutel_blijft_een_valueerror():
+    with pytest.raises(ValueError):
+        validate_key("abc")
 
 
 def test_enkel_webadressen_openen():

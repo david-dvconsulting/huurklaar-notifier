@@ -28,19 +28,10 @@ from UserNotifications import (
 )
 
 from ..core.api import is_openable
+from ..core.app_actions import AppActions
 from ..core.controller import Controller
 from ..core.i18n import translate
-from ..core.menu import (
-    AUTOSTART,
-    LANGUAGE_PREFIX,
-    QUIT,
-    REFRESH,
-    SETTINGS,
-    Entry,
-    MenuCache,
-    build_menu,
-    title_for,
-)
+from ..core.menu import Entry, MenuCache, build_menu, title_for
 from ..core.poller import Poller, UpdatePoller
 from ..core.state import Toast
 from .keyring_store import KeyringSecretStore
@@ -174,6 +165,20 @@ def alert(lang: str, message: str) -> None:
     )
 
 
+def ask_settings(lang: str, base_url: str, key_saved: bool) -> tuple[str, str] | None:
+    """Twee opeenvolgende vragen: adres en sleutel (verborgen). `None` = geannuleerd."""
+    url = ask(lang, translate(lang, "dialog.url_prompt"), base_url)
+    if url is None:
+        return None
+    key_prompt = translate(lang, "dialog.key_prompt")
+    if key_saved:
+        key_prompt += "\n" + translate(lang, "dialog.key_keep")
+    key = ask(lang, key_prompt, "", hidden=True)
+    if key is None:
+        return None
+    return url, key
+
+
 def forget_callbacks(items, registry=None) -> None:
     """Haalt de items (en recursief hun submenu's) uit het register van rumps.
 
@@ -204,6 +209,7 @@ class MenubarApp(rumps.App):
         # Een gevonden update tekent het menu opnieuw (een lege lijst = geen meldingen, wel herbouwen).
         self._updates = UpdatePoller(controller, lambda: self._results.put([]))
         self._timer = rumps.Timer(self._tick, 1)
+        self.actions = AppActions(controller, _MacUi(self))
 
     def run(self, **kwargs) -> None:  # type: ignore[override]
         self._poller.start()
@@ -213,13 +219,8 @@ class MenubarApp(rumps.App):
 
     # Alles hieronder draait op de hoofdthread.
     def _tick(self, _) -> None:
-        try:
-            while True:
-                for t in self._results.get_nowait():
-                    self.c.platform.notifier.notify(t.title, t.body, t.url)
-                self._rebuild_needed = True
-        except queue.Empty:
-            pass
+        if self.actions.drain(self._results, self.c.platform.notifier):
+            self._rebuild_needed = True
         if self._rebuild_needed:
             try:
                 self._render()
@@ -263,46 +264,35 @@ class MenubarApp(rumps.App):
         return out
 
     def _callback(self, e: Entry):
-        def run(_):
-            if e.url:
-                open_url(e.url)
-            elif e.action == REFRESH:
-                self.c.wake.set()
-            elif e.action == SETTINGS:
-                import threading
+        return lambda _: self.actions.handle(e)
 
-                threading.Thread(target=self._settings, daemon=True).start()
-            elif e.action == AUTOSTART:
-                a = self.c.platform.autostart
-                a.set_enabled(not a.is_enabled())
-                self._rebuild_needed = True
-            elif e.action and e.action.startswith(LANGUAGE_PREFIX):
-                self.c.set_language(e.action[len(LANGUAGE_PREFIX) :])
-                self._rebuild_needed = True
-            elif e.action == QUIT:
-                self._poller.stop()
-                self._updates.stop()
-                rumps.quit_application()
+    def shutdown(self) -> None:
+        """Pollers stoppen en de app afsluiten (de quit-actie)."""
+        self._poller.stop()
+        self._updates.stop()
+        rumps.quit_application()
 
-        return run
 
-    def _settings(self) -> None:
-        lang = self.c.language
-        url = ask(lang, translate(lang, "dialog.url_prompt"), self.c.config.base_url)
-        if url is None:
-            return
-        key_prompt = translate(lang, "dialog.key_prompt")
-        if self.c.platform.secrets.get():
-            key_prompt += "\n" + translate(lang, "dialog.key_keep")
-        key = ask(lang, key_prompt, "", hidden=True)
-        if key is None:
-            return
-        try:
-            self.c.configure(url, key or None)
-        except ValueError as e:
-            msg = "dialog.invalid_url" if "adres" in str(e) or "https" in str(e) else "dialog.invalid_key"
-            alert(lang, translate(lang, msg))
-        self._rebuild_needed = True
+class _MacUi:
+    """De Mac-kant van `AppUi`: dialogen via osascript, de rest delegeert naar de menubalk-app."""
+
+    def __init__(self, app: MenubarApp) -> None:
+        self._app = app
+
+    def open_url(self, url: str) -> None:
+        open_url(url)
+
+    def ask_settings(self, lang: str, base_url: str, key_saved: bool) -> tuple[str, str] | None:
+        return ask_settings(lang, base_url, key_saved)
+
+    def alert(self, message: str) -> None:
+        alert(self._app.c.language, message)
+
+    def request_rebuild(self) -> None:
+        self._app._rebuild_needed = True
+
+    def quit(self) -> None:
+        self._app.shutdown()
 
 
 def run() -> None:
