@@ -15,6 +15,7 @@ from .controller import Controller
 from .i18n import translate
 from .menu import (
     AUTOSTART,
+    KIND_PREFIX,
     LANGUAGE_PREFIX,
     PAUSE_HOUR,
     PAUSE_OFF,
@@ -86,6 +87,9 @@ class AppActions:
                 self.c.resume()
             else:
                 return  # onbekende keuze (nieuwere menu-versie): niets doen
+            self.ui.request_rebuild()
+        elif action and action.startswith(KIND_PREFIX):
+            self.c.toggle_kind(action[len(KIND_PREFIX) :])
             self.ui.request_rebuild()
         elif action == QUIT:
             self.ui.quit()

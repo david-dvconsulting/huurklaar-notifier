@@ -51,3 +51,28 @@ def test_ongeldige_paused_until_geeft_nul(tmp_path):
         assert ConfigStore(tmp_path).load().paused_until == 0.0
     (tmp_path / "config.json").write_text("{}", encoding="utf-8")
     assert ConfigStore(tmp_path).load().paused_until == 0.0
+
+
+# -- meldingen per soort (KAN-284) ---------------------------------------------------------------
+def test_muted_kinds_wordt_bewaard_en_geladen(tmp_path):
+    store = ConfigStore(tmp_path)
+    store.save(Config(muted_kinds=["complaint", "report"]))
+    assert store.load().muted_kinds == ["complaint", "report"]
+
+
+def test_ongeldige_muted_kinds_worden_tolerant_geladen(tmp_path):
+    for waarde in ("klacht", 3, None, True, {"a": 1}, [1, 2, None, True]):
+        (tmp_path / "config.json").write_text(json.dumps({"muted_kinds": waarde}), encoding="utf-8")
+        assert ConfigStore(tmp_path).load().muted_kinds == [], waarde
+    (tmp_path / "config.json").write_text("{}", encoding="utf-8")
+    assert ConfigStore(tmp_path).load().muted_kinds == []
+
+
+def test_muted_kinds_enkel_tekst_zonder_dubbelen_en_hoogstens_twintig(tmp_path):
+    (tmp_path / "config.json").write_text(
+        json.dumps({"muted_kinds": ["complaint", 5, "complaint", None, "task", False]}), encoding="utf-8"
+    )
+    assert ConfigStore(tmp_path).load().muted_kinds == ["complaint", "task"]
+    veel = [f"soort{i}" for i in range(25)]
+    (tmp_path / "config.json").write_text(json.dumps({"muted_kinds": veel}), encoding="utf-8")
+    assert ConfigStore(tmp_path).load().muted_kinds == veel[:20]

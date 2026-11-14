@@ -111,6 +111,7 @@ class TrayApp:
             c.platform.autostart.is_enabled(),
             v.update,
             v.paused_until,
+            muted_kinds=v.muted_kinds,
         )
         badge = badge_for(v.state)
         title = tooltip(status_line(v.state, v.language, v.paused_until), APP_NAME)

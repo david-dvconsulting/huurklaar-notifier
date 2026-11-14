@@ -88,4 +88,5 @@ def test_render_herbouwt_enkel_bij_verandering_en_laat_geen_register_achter(cont
         controller.set_language(("nl", "fr", "en")[i % 3])
         app._render()
     assert app.renders == 1001
-    assert len(registry()) - base <= ITEMS_PER_MENU + 5  # één menu met items, submenu en 7 talen
+    # Één menu met items, submenu en 7 talen, plus de 2 kinderen van 'Meldingen voor' (KAN-284).
+    assert len(registry()) - base <= ITEMS_PER_MENU + 7

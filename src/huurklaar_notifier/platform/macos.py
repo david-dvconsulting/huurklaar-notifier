@@ -255,6 +255,7 @@ class MenubarApp(rumps.App):
             self.c.platform.autostart.is_enabled(),
             v.update,
             v.paused_until,
+            muted_kinds=v.muted_kinds,
         )
         title = title_for(v.state)
         if not self._menu_cache.changed(entries, title):

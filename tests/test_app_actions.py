@@ -11,6 +11,7 @@ from huurklaar_notifier.core.controller import Controller, tomorrow_morning
 from huurklaar_notifier.core.i18n import translate
 from huurklaar_notifier.core.menu import (
     AUTOSTART,
+    KIND_PREFIX,
     LANGUAGE_PREFIX,
     PAUSE_PREFIX,
     QUIT,
@@ -303,3 +304,13 @@ def test_onbekende_pauzekeuze_doet_niets(tmp_path, ui):
     c = Controller(FakePlatform(tmp_path), clock=lambda: 1000.0)
     AppActions(c, ui).handle(Entry("?", action=PAUSE_PREFIX + "week"))
     assert c.config.paused_until == 0.0 and ui.rebuilds == 0
+
+
+# -- meldingen per soort (KAN-284) ---------------------------------------------------------------
+def test_kind_zet_en_wist_de_soort_en_vraagt_herbouwen(tmp_path, ui):
+    c = Controller(FakePlatform(tmp_path), clock=lambda: 1000.0)
+    acties = AppActions(c, ui)
+    acties.handle(Entry("Klacht", action=KIND_PREFIX + "complaint"))
+    assert c.config.muted_kinds == ["complaint"] and ui.rebuilds == 1
+    acties.handle(Entry("Klacht", action=KIND_PREFIX + "complaint"))
+    assert c.config.muted_kinds == [] and ui.rebuilds == 2

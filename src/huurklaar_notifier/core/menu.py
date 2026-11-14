@@ -21,6 +21,10 @@ REFRESH, SETTINGS, AUTOSTART, QUIT = "refresh", "settings", "autostart", "quit"
 LANGUAGE_PREFIX = "language:"
 PAUSE_PREFIX = "pause:"
 PAUSE_HOUR, PAUSE_TOMORROW, PAUSE_OFF = "hour", "tomorrow", "off"
+KIND_PREFIX = "kind:"
+# Vaste volgorde van het submenu "Meldingen voor". Een soort die de server nieuw stuurt, staat hier niet en
+# krijgt geen vinkje: zonder naam zou het gewoon 'Melding' heten en de gebruiker niets zeggen.
+KNOWN_KINDS = ("task", "complaint", "report", "tenantTask", "myReport", "invoiceAttention")
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,6 +79,20 @@ def kind_label(lang: str, kind: str) -> str:
     return translate(lang, key if key in NL else "kind.other")
 
 
+def kind_entries(state: State, lang: str, muted_kinds: tuple[str, ...] = ()) -> tuple[Entry, ...]:
+    """Het submenu per soort: de bekende soorten uit het huidige antwoord, plus de uitgezette soorten.
+
+    Een uitgezette soort blijft staan als ze niet meer in het antwoord zit: anders kun je ze niet meer aanzetten.
+    Geeft een leeg tuple als er niets te kiezen valt; dan hoort er geen submenu te komen.
+    """
+    present = {i.kind for i in state.snapshot.items} if state.snapshot else set()
+    return tuple(
+        Entry(kind_label(lang, kind), action=KIND_PREFIX + kind, checked=kind not in muted_kinds)
+        for kind in KNOWN_KINDS
+        if kind in present or kind in muted_kinds
+    )
+
+
 def build_menu(
     state: State,
     lang: str,
@@ -82,6 +100,7 @@ def build_menu(
     autostart: bool,
     update: Release | None = None,
     paused_until: float = 0.0,
+    muted_kinds: tuple[str, ...] = (),
 ) -> list[Entry]:
     t = lambda key, **p: translate(lang, key, **p)  # noqa: E731
     entries: list[Entry] = [Entry(status_line(state, lang, paused_until), enabled=False)]
@@ -120,12 +139,17 @@ def build_menu(
     ]
     if paused_until > 0:
         pause.append(Entry(t("menu.pause_off"), action=PAUSE_PREFIX + PAUSE_OFF))
+    kinds = kind_entries(state, lang, muted_kinds)
     entries += [
         SEPARATOR,
         Entry(t("menu.refresh"), action=REFRESH),
         Entry(t("menu.settings"), action=SETTINGS),
         Entry(t("menu.language"), children=languages),
         Entry(t("menu.pause"), children=tuple(pause)),
+    ]
+    if kinds:
+        entries.append(Entry(t("menu.kinds"), children=kinds))
+    entries += [
         Entry(t("menu.autostart"), action=AUTOSTART, checked=autostart),
         SEPARATOR,
         Entry(t("menu.about", version=__version__), enabled=False),

@@ -152,6 +152,9 @@ class State:
             config.seen = current[:MAX_SEEN]
         if not snap.enabled:
             return []
+        # Items van een uitgezette soort tellen niet mee voor melding, samenvatting en `missed`. Ze stonden
+        # hierboven al in `seen`, dus aanzetten geeft later geen stortvloed van oude items.
+        fresh = [i for i in fresh if i.kind not in config.muted_kinds]
         if paused:
             self.missed += len(fresh)
             return []

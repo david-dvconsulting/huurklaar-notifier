@@ -155,3 +155,50 @@ def test_statusregel_zonder_pauze_is_ongewijzigd(controller):
     assert (
         build_menu(controller.state, "nl", "auto", False, paused_until=0.0)[0].label == "2 open · 1 te laat"
     )
+
+
+# -- meldingen per soort (KAN-284) ----------------------------------------------------------------
+def _soort(soort: str, i: int = 0) -> dict:
+    return {**SAMPLE["items"][0], "id": f"{soort}-{i}", "kind": soort, "title": f"Nieuw {soort} {i}"}
+
+
+def _submenu(entries):
+    return next(e for e in entries if e.label == "Meldingen voor")
+
+
+def test_submenu_meldingen_voor_in_vaste_volgorde(controller, server):
+    server.body = {
+        **SAMPLE,
+        "items": [_soort("invoiceAttention"), _soort("complaint"), _soort("task"), _soort("report")],
+    }
+    controller.poll()
+    entries = build_menu(controller.state, "nl", "auto", False, muted_kinds=("report",))
+    sub = _submenu(entries).children
+    assert [(c.label, c.checked) for c in sub] == [
+        ("Taak", True),
+        ("Klacht", True),
+        ("Melding", False),
+        ("Factuur", True),
+    ]
+    assert [c.action for c in sub] == ["kind:task", "kind:complaint", "kind:report", "kind:invoiceAttention"]
+
+
+def test_submenu_toont_uitgezette_soort_die_niet_meer_in_het_antwoord_staat(controller, server):
+    server.body = {**SAMPLE, "items": [_soort("task")]}
+    controller.poll()
+    entries = build_menu(controller.state, "nl", "auto", False, muted_kinds=("complaint",))
+    assert [(c.label, c.checked) for c in _submenu(entries).children] == [("Taak", True), ("Klacht", False)]
+
+
+def test_onbekende_soort_komt_niet_in_het_submenu(controller, server):
+    server.body = {**SAMPLE, "items": [_soort("nieuwesoort"), _soort("task")]}
+    controller.poll()
+    entries = build_menu(controller.state, "nl", "auto", False)
+    assert [c.action for c in _submenu(entries).children] == ["kind:task"]
+
+
+def test_zonder_items_geen_submenu_meldingen_voor(controller, server):
+    server.body = EMPTY
+    controller.poll()
+    entries = build_menu(controller.state, "nl", "auto", False)
+    assert not any(e.label == "Meldingen voor" for e in entries)

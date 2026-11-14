@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from .. import __version__
 from ..platform.base import Platform
 from .api import ApiClient, AuthError, InvalidKeyError, validate_base_url, validate_key
-from .config import Config, ConfigStore
+from .config import MAX_MUTED_KINDS, Config, ConfigStore
 from .i18n import resolve_language
 from .state import Delivery, State, Toast
 from .updates import DAY, Release, UpdateCheckError, fetch_latest_release, newer_than_current, release_url
@@ -31,6 +31,7 @@ class View:
     language_setting: str
     update: Release | None
     paused_until: float = 0.0  # enkel gezet als de pauze nu nog loopt
+    muted_kinds: tuple[str, ...] = ()
 
 
 def tomorrow_morning(now: float, hour: int = 8) -> float:
@@ -100,6 +101,21 @@ class Controller:
         self.set_pause(0.0)
         self.wake.set()
 
+    # -- meldingen per soort (KAN-284) -------------------------------------------
+    def toggle_kind(self, kind: str) -> None:
+        """Zet de meldingen voor een soort aan of uit. Een lege soort doet niets."""
+        if not kind:
+            return
+        with self._lock:
+            muted = self.config.muted_kinds
+            if kind in muted:
+                muted.remove(kind)
+            elif len(muted) < MAX_MUTED_KINDS:
+                muted.append(kind)
+            else:
+                return  # vol: niets gewijzigd, dus ook niets wegschrijven
+            self.store.save(self.config)
+
     # -- instellingen --------------------------------------------------------
     def configure(self, base_url: str, key: str | None) -> None:
         """Bewaart adres en (optioneel nieuwe) sleutel. Werpt InvalidUrlError of InvalidKeyError (beide ValueError) bij ongeldige invoer."""
@@ -154,6 +170,7 @@ class Controller:
                 self.config.language,
                 self._newer_release(self.config.update_version),
                 self._active_pause(),
+                tuple(self.config.muted_kinds),
             )
 
     def next_delay(self) -> float | None:
