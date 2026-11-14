@@ -29,6 +29,7 @@ NL = {
     "kind.tenantTask": "Taak voor jou",
     "kind.myReport": "Jouw melding",
     "kind.invoiceAttention": "Factuur",
+    "kind.other": "Melding",
     "toast.overdue": "Te laat",
     "toast.action": "Actie nodig",
     "toast.summary": "{n} nieuwe meldingen",
@@ -68,6 +69,7 @@ FR = {
     "kind.tenantTask": "Tâche pour vous",
     "kind.myReport": "Votre signalement",
     "kind.invoiceAttention": "Facture",
+    "kind.other": "Notification",
     "toast.overdue": "En retard",
     "toast.action": "Action requise",
     "toast.summary": "{n} nouvelles notifications",
@@ -107,6 +109,7 @@ EN = {
     "kind.tenantTask": "Task for you",
     "kind.myReport": "Your report",
     "kind.invoiceAttention": "Invoice",
+    "kind.other": "Notification",
     "toast.overdue": "Overdue",
     "toast.action": "Action needed",
     "toast.summary": "{n} new notifications",
@@ -136,5 +139,6 @@ def resolve_language(setting: str, system_languages: list[str]) -> str:
 
 
 def translate(lang: str, key: str, **params: object) -> str:
-    text = CATALOG.get(lang, NL).get(key) or NL[key]
+    # Een ontbrekende sleutel geeft de sleutel zelf terug i.p.v. een KeyError (een menu mag niet crashen)
+    text = CATALOG.get(lang, NL).get(key) or NL.get(key, key)
     return text.format(**params) if params else text

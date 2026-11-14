@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from .. import __version__
 from .api import is_openable
-from .i18n import LANGUAGES, translate
+from .i18n import LANGUAGES, NL, translate
 from .state import State, Status
 from .state import app_url as _app_url
 from .updates import Release
@@ -55,6 +55,12 @@ def status_line(state: State, lang: str) -> str:
     return translate(lang, f"status.{state.status.value}")
 
 
+def kind_label(lang: str, kind: str) -> str:
+    """Onbekende soorten (de server mag er nieuwe toevoegen) krijgen de generieke tekst 'kind.other'."""
+    key = "kind." + kind
+    return translate(lang, key if key in NL else "kind.other")
+
+
 def build_menu(
     state: State, lang: str, language_setting: str, autostart: bool, update: Release | None = None
 ) -> list[Entry]:
@@ -71,7 +77,7 @@ def build_menu(
         for item in snap.items[:MAX_MENU_ITEMS]:
             prefix = "⚠️ " if item.overdue else ""
             where = " — " + item.property_label if item.property_label else ""
-            label = _shorten(f"{prefix}{t('kind.' + item.kind)}: {item.title}{where}")
+            label = _shorten(f"{prefix}{kind_label(lang, item.kind)}: {item.title}{where}")
             entries.append(Entry(label, url=item.href if is_openable(item.href) else None))
         rest = snap.total - min(len(snap.items), MAX_MENU_ITEMS)
         if rest > 0:
