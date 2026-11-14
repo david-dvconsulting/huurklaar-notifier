@@ -1,5 +1,8 @@
 """Windows-logica die zonder Windows te testen is: register, melding, icoon en menu-omzetting."""
 
+import hashlib
+import logging
+
 import pytest
 
 from fake_winreg import FakeWinreg
@@ -7,7 +10,7 @@ from huurklaar_notifier.core.menu import AUTOSTART, Entry, build_menu
 from huurklaar_notifier.core.state import Status, Toast
 from huurklaar_notifier.platform.windows_icon import Badge, badge_for, render_icon
 from huurklaar_notifier.platform.windows_menu import MAX_TOOLTIP, build_items, tooltip
-from huurklaar_notifier.platform.windows_notifier import MAX_BODY, WindowsNotifier
+from huurklaar_notifier.platform.windows_notifier import GROUP, MAX_BODY, WindowsNotifier, toast_tag
 from huurklaar_notifier.platform.windows_registry import (
     AUMID,
     AUMID_KEY,
@@ -57,7 +60,17 @@ def test_melding_gebruikt_eigen_app_id_en_open_link():
     sent = []
     n = WindowsNotifier(lambda *a, **k: sent.append((a, k)))
     n.notify(Toast("Titel", "Tekst", "https://app.example.test/tasks/1", "task-1", "task"))
-    assert sent == [(("Titel", "Tekst"), {"on_click": "https://app.example.test/tasks/1", "app_id": AUMID})]
+    assert sent == [
+        (
+            ("Titel", "Tekst"),
+            {
+                "on_click": "https://app.example.test/tasks/1",
+                "app_id": AUMID,
+                "tag": toast_tag("task-1"),
+                "group": "hk",
+            },
+        )
+    ]
 
 
 @pytest.mark.parametrize(
@@ -78,6 +91,55 @@ def test_melding_kapt_lange_tekst_af_en_laat_de_app_niet_vallen():
         raise OSError("winrt weigert")
 
     WindowsNotifier(boom).notify(Toast("t", "b", None, "k", "task"))  # geen uitzondering
+
+
+def test_melding_geeft_tag_en_group_door():
+    sent = []
+    WindowsNotifier(lambda *a, **k: sent.append(k)).notify(Toast("t", "b", None, "task:acc:1", "task"))
+    assert sent[0]["tag"] == hashlib.sha1(b"task:acc:1").hexdigest()[:32]
+    assert sent[0]["group"] == "hk" == GROUP
+
+
+def test_tag_en_group_zijn_nooit_langer_dan_64_tekens():
+    sent = []
+    WindowsNotifier(lambda *a, **k: sent.append(k)).notify(Toast("t", "b", None, "x" * 200, "task"))
+    assert 0 < len(sent[0]["tag"]) <= 64
+    assert 0 < len(sent[0]["group"]) <= 64
+
+
+def test_zelfde_sleutel_geeft_zelfde_tag_en_andere_sleutels_andere_tags():
+    assert toast_tag("task:a:1") == toast_tag("task:a:1")
+    assert toast_tag("task:a:1") != toast_tag("task:a:2")
+    assert toast_tag("x" * 200) != toast_tag("x" * 199)
+
+
+def test_withdraw_roept_clear_toast_per_sleutel_aan():
+    cleared = []
+    WindowsNotifier(clear_fn=lambda **k: cleared.append(k)).withdraw(["a", "b"])
+    assert cleared == [
+        {"app_id": AUMID, "tag": toast_tag("a"), "group": "hk"},
+        {"app_id": AUMID, "tag": toast_tag("b"), "group": "hk"},
+    ]
+
+
+def test_withdraw_zonder_sleutels_doet_niets():
+    cleared = []
+    WindowsNotifier(clear_fn=lambda **k: cleared.append(k)).withdraw([])
+    assert cleared == []
+
+
+def test_withdraw_fout_houdt_volgende_sleutel_niet_tegen_en_logt_de_sleutel_niet(caplog):
+    calls = []
+
+    def clear(**k):
+        calls.append(k["tag"])
+        if len(calls) == 1:
+            raise OSError("al weggeklikt geheim-sleutel-1")
+
+    with caplog.at_level(logging.DEBUG):  # geen uitzondering, ook al faalt de eerste
+        WindowsNotifier(clear_fn=clear).withdraw(["geheim-sleutel-1", "geheim-sleutel-2"])
+    assert calls == [toast_tag("geheim-sleutel-1"), toast_tag("geheim-sleutel-2")]
+    assert "geheim-sleutel" not in caplog.text
 
 
 # -- icoon --------------------------------------------------------------------------------------
