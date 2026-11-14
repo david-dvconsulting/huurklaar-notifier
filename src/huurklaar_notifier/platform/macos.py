@@ -41,6 +41,7 @@ log = logging.getLogger(__name__)
 
 APP_NAME = "Huurklaar Meldingen"
 BUNDLE_ID = "be.huurklaar.meldingen"
+FIRST_RUN_LINK_WAIT = 2.0  # seconden, zie MenubarApp.__init__
 
 
 def resource(name: str) -> Path:
@@ -229,7 +230,9 @@ class MenubarApp(rumps.App):
         # Een gevonden update tekent het menu opnieuw (een lege lijst = geen meldingen, wel herbouwen).
         self._updates = UpdatePoller(controller, lambda: self._results.put([]))
         self._timer = rumps.Timer(self._tick, 1)
-        self.actions = AppActions(controller, _MacUi(self))
+        # Bij een koude start via een koppellink komt het Apple Event pas na de eerste tik: de eerste start
+        # wacht er even op, anders verdringt het instellingenvenster de koppelvraag (gezien met een lokale build).
+        self.actions = AppActions(controller, _MacUi(self), first_run_delay=FIRST_RUN_LINK_WAIT)
 
     def run(self, **kwargs) -> None:  # type: ignore[override]
         self._poller.start()
@@ -242,6 +245,7 @@ class MenubarApp(rumps.App):
 
     # Alles hieronder draait op de hoofdthread.
     def _tick(self, _) -> None:
+        self.actions.first_run()  # na de eerste tik niets meer: het start zelf maar één keer een thread
         if self.actions.drain(self._results, self.c.platform.notifier):
             self._rebuild_needed = True
         if self._rebuild_needed:
@@ -255,7 +259,12 @@ class MenubarApp(rumps.App):
     def _render(self) -> None:
         v = self.c.view()  # één korte lock-sectie; daarna werken we op de kopie
         entries = build_menu(
-            v.state, v.language, v.language_setting, self.c.platform.autostart.is_enabled(), v.update
+            v.state,
+            v.language,
+            v.language_setting,
+            self.c.platform.autostart.is_enabled(),
+            v.update,
+            base_url=v.base_url,
         )
         title = title_for(v.state)
         if not self._menu_cache.changed(entries, title):

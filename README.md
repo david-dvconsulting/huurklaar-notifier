@@ -6,7 +6,7 @@ A menu bar app (Mac) and tray app (Windows) that shows notifications for tasks a
 
 ## Setup
 
-Choose **Instellingen…** (Settings) in the menu and enter the **Huurklaar API address** and the **notification key** (Huurklaar > My profile > Notifications). The address is stored in `~/Library/Application Support/Huurklaar Meldingen/config.json` (Mac) or `%APPDATA%\Huurklaar Meldingen\config.json` (Windows). The key is stored only in the Keychain (Mac) or the Windows Credential Manager, never in a file or a log. Only `https` is allowed, except for localhost.
+Choose **Instellingen…** (Settings) in the menu and enter the **Huurklaar API address** and the **notification key** (Huurklaar > My profile > Notifications). The address is filled in with the production address by default; only if you use the test or a local environment, replace it with the address from the table below. The address is stored in `~/Library/Application Support/Huurklaar Meldingen/config.json` (Mac) or `%APPDATA%\Huurklaar Meldingen\config.json` (Windows). The key is stored only in the Keychain (Mac) or the Windows Credential Manager, never in a file or a log. Only `https` is allowed, except for localhost.
 
 | Environment | App | API address to enter |
 |---|---|---|
