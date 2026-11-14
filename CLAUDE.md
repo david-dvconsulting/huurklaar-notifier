@@ -59,5 +59,6 @@ Verificatie, dezelfde stappen als CI. Draai ze vóór je zegt dat iets klaar is:
 - **Stijl**: ruff met regelbreedte 110 en de regels E, F, I, UP, B en SIM. Commentaar legt het *waarom* uit.
 - **UI-tekst**: zet elke nieuwe sleutel in NL, FR en EN in `core/i18n.py`. Een test bewaakt dat alle talen dezelfde sleutels hebben.
 - **Logs**: nooit een sleutel, titel, adres of ander gegeven. Enkel het fouttype.
-- **Werkwijze per Jira-ticket**: maak per ticket een branch `kan-<nr>-<korte-omschrijving>`. Een commit heet `KAN-<nr>: <wat>` en legt in de body het waarom uit. Een sub-task krijgt een eigen PR met dezelfde titel. Zet geen interne links (Jira-site) in PR-teksten, want de repo is publiek.
+- **Werkwijze per Jira-ticket**: één branch `kan-<taak>-<korte-omschrijving>` en één PR per taak, met één commit per sub-task. Een commit heet `KAN-<sub-task>: <wat>` en legt in de body het waarom uit. De volledige werkwijze staat in de skill `kan-ticket` in de app-repo (`huurklaar/.claude/skills/kan-ticket/SKILL.md`). Zet geen interne links (Jira-site) in PR-teksten, want de repo is publiek.
+- **Git-identiteit**: commits staan op `david <david@dvconsulting.be>`, ingesteld in de repo-config (`git config user.email`). Is de globale git-config een ander adres, zet de identiteit dan per repo. Controleer de auteur met `git log -1 --format='%an <%ae>'` vóór je pusht: deze repo is publiek.
 - **Releases**: zie de README en `scripts/release.sh`. Verplaats of hergebruik nooit een tag. Een release maak je alleen op uitdrukkelijk verzoek.
