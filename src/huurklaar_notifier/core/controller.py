@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 from .. import __version__
 from ..platform.base import Platform
-from .api import ApiClient, validate_base_url, validate_key
+from .api import ApiClient, AuthError, validate_base_url, validate_key
 from .config import Config, ConfigStore
 from .i18n import resolve_language
 from .state import State, Toast
@@ -53,6 +53,9 @@ class Controller:
         self._current_version = current_version
         # Telt hoe vaak adres of sleutel veranderd is; zie `poll`.
         self._generation = 0
+        # De laatst gemaakte client, met het adres en de sleutel waarmee ze gemaakt is. Zolang het adres gelijk is,
+        # lezen we de sleutel niet opnieuw uit de Keychain. Alles eromheen gebeurt onder `_lock`.
+        self._client_cache: tuple[str, str, ApiClient] | None = None
 
     # -- taal --------------------------------------------------------------
     @property
@@ -78,6 +81,7 @@ class Controller:
                 self.config.seen = []  # ander account of adres: alles is weer nieuw
             self.config.base_url = url
             self._generation += 1  # een lopende poll met de oude client moet haar resultaat weggooien
+            self._client_cache = None  # de volgende poll maakt een client met de nieuwe instellingen
             self.store.save(self.config)
         self.wake.set()
 
@@ -95,8 +99,15 @@ class Controller:
             # de status van het oude account tonen. We gooien het weg; `configure` wekt de poller al.
             if generation != self._generation:
                 return []
+            if isinstance(result, AuthError):
+                # Een geweigerde sleutel: de volgende poll leest de sleutel opnieuw uit de Keychain.
+                self._client_cache = None
+            before = list(self.config.seen)
             toasts = self.state.apply(result, self.config, self.language, hhmm)
-            self.store.save(self.config)  # onthoudt welke meldingen al getoond zijn
+            # `seen` verandert enkel als er een melding bij komt of verdwijnt. Alleen dan schrijven we weg,
+            # zodat een gewone poll niets naar de schijf stuurt.
+            if self.config.seen != before:
+                self.store.save(self.config)
             return toasts
 
     def view(self) -> View:
@@ -114,13 +125,21 @@ class Controller:
             return self.state.next_delay()
 
     def _client(self) -> ApiClient | None:
+        """Geeft de bewaarde client als het adres nog klopt, anders maakt er een met de sleutel uit de Keychain."""
         if not self.config.base_url:
             return None
+        cached = self._client_cache
+        if cached is not None and cached[0] == self.config.base_url:
+            return cached[2]
         try:
             key = self.platform.secrets.get()
-            return self._client_factory(self.config.base_url, key) if key else None
+            if not key:
+                return None
+            client = self._client_factory(self.config.base_url, key)
         except Exception:  # Keychain geweigerd of ongeldig adres: behandel als 'niet aangemeld'
-            return None
+            return None  # niets cachen: de volgende poll probeert het opnieuw
+        self._client_cache = (self.config.base_url, key, client)
+        return client
 
     # -- updatecheck (KAN-121) -----------------------------------------------------
     @property

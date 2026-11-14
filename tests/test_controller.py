@@ -6,12 +6,43 @@ import time
 import pytest
 
 from huurklaar_notifier.core.api import ApiClient, ApiError
+from huurklaar_notifier.core.config import ConfigStore
 from huurklaar_notifier.core.controller import Controller
 from huurklaar_notifier.core.state import NotConfigured, State, Status
-from huurklaar_notifier.testing.fake_server import FAKE_KEY
+from huurklaar_notifier.testing.fake_server import EMPTY, FAKE_KEY, SAMPLE
 from huurklaar_notifier.testing.fakes import FakePlatform
 
 ANTWOORD_BINNEN = 0.1  # seconden: de UI-thread mag nooit langer wachten
+VERKEERDE_SLEUTEL = "hkn_verkeerde_sleutel_123"
+
+
+class TellendeFactory:
+    """Telt hoe vaak de controller een client maakt, en met welke sleutel."""
+
+    def __init__(self) -> None:
+        self.sleutels: list[str] = []
+
+    def __call__(self, base_url: str, key: str) -> ApiClient:
+        self.sleutels.append(key)
+        return ApiClient(base_url, key)
+
+
+@pytest.fixture
+def geteld(tmp_path, server, monkeypatch):
+    """Controller met een tellende client_factory en een tellende `ConfigStore.save`, na `configure`."""
+    factory = TellendeFactory()
+    c = Controller(FakePlatform(tmp_path), client_factory=factory)
+    c.configure(server.url, FAKE_KEY)
+    schrijfacties: list[int] = []
+    echt_opslaan = c.store.save
+
+    def tel_opslaan(config):
+        schrijfacties.append(1)
+        echt_opslaan(config)
+
+    monkeypatch.setattr(c.store, "save", tel_opslaan)
+    c.factory, c.schrijfacties = factory, schrijfacties
+    return c
 
 
 class TrageClient:
@@ -159,3 +190,56 @@ def test_fetch_en_apply_geven_hetzelfde_als_poll(controller, server):
     server.status = 500
     assert a.poll(client, ca, "nl", "12:01") == b.apply(b.fetch(client), cb, "nl", "12:01") == []
     assert (a.status, a.failures) == (b.status, b.failures) == (Status.OFFLINE, 1)
+
+
+def test_tien_polls_maken_een_client_en_schrijven_hoogstens_een_keer(geteld, monkeypatch):
+    lezingen: list[int] = []
+    echt_lezen = geteld.platform.secrets.get
+
+    def tel_lezen():
+        lezingen.append(1)
+        return echt_lezen()
+
+    monkeypatch.setattr(geteld.platform.secrets, "get", tel_lezen)
+    for _ in range(10):
+        geteld.poll()
+    assert len(geteld.factory.sleutels) == 1
+    assert len(lezingen) == 1  # de sleutel komt maar één keer uit de Keychain
+    assert len(geteld.schrijfacties) == 1  # alleen de eerste poll heeft `seen` veranderd
+
+
+def test_nieuwe_melding_schrijft_wel_weg(geteld, server, tmp_path):
+    geteld.poll()
+    geteld.schrijfacties.clear()
+    geteld.poll()
+    assert geteld.schrijfacties == []
+    nieuw = {**SAMPLE["items"][0], "id": "task-3", "title": "Nieuwe melding"}
+    server.body = {**SAMPLE, "items": [*SAMPLE["items"], nieuw]}
+    assert [t.title for t in geteld.poll()] == ["Nieuwe melding"]
+    assert len(geteld.schrijfacties) == 1
+    assert "task-3" in ConfigStore(tmp_path).load().seen
+
+
+def test_na_configure_met_nieuwe_sleutel_komt_er_een_nieuwe_client(geteld):
+    geteld.poll()
+    geteld.configure(geteld.config.base_url, "hkn_een_andere_sleutel_123")
+    geteld.poll()
+    assert geteld.factory.sleutels == [FAKE_KEY, "hkn_een_andere_sleutel_123"]
+
+
+def test_na_een_authfout_komt_er_bij_de_volgende_poll_een_nieuwe_client(geteld):
+    geteld.configure(geteld.config.base_url, VERKEERDE_SLEUTEL)  # de server weigert deze sleutel
+    geteld.poll()
+    assert geteld.state.status is Status.AUTH_FAILED
+    geteld.platform.secrets.set(FAKE_KEY)  # buiten `configure` om: de Keychain krijgt weer de juiste sleutel
+    geteld.poll()
+    assert geteld.factory.sleutels == [VERKEERDE_SLEUTEL, FAKE_KEY]
+    assert geteld.state.status is Status.ATTENTION
+
+
+def test_leeg_antwoord_schrijft_niet_weg_als_seen_gelijk_blijft(geteld, server):
+    server.body = EMPTY
+    geteld.poll()
+    geteld.schrijfacties.clear()
+    geteld.poll()
+    assert geteld.schrijfacties == []

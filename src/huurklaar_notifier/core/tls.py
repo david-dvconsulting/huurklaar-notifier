@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import functools
 import ssl
 import sys
 
 
+# Gecachet: de certifi-bundel (~150 certificaten) wordt zo één keer ingelezen, niet bij elke poll. De context is
+# na het maken alleen-lezen en mag door meerdere clients en threads tegelijk gebruikt worden.
+@functools.cache
 def ssl_context() -> ssl.SSLContext:
     """Een context die ook werkt zonder systeemcertificaten.
 
