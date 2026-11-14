@@ -30,6 +30,7 @@ class View:
     language: str
     language_setting: str
     update: Release | None
+    base_url: str  # het bewaarde API-adres; het menu kiest daarop de juiste app-omgeving
 
 
 class Controller:
@@ -118,6 +119,7 @@ class Controller:
                 self.language,
                 self.config.language,
                 self._newer_release(self.config.update_version),
+                self.config.base_url,
             )
 
     def next_delay(self) -> float | None:

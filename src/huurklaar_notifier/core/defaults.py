@@ -8,3 +8,15 @@ lokale omgeving gebruikt, vervangt het adres in het venster.
 # Verander het hier, op één plaats.
 DEFAULT_BASE_URL = "https://zf02fcpfvi.execute-api.eu-central-1.amazonaws.com"
 DEFAULT_APP_URL = "https://app.huurklaar.be"
+
+# Per omgeving: het API-adres (zoals in de README) en het webadres van de app. Het menu-item "sleutel aanmaken"
+# moet naar dezelfde omgeving openen als de sleutel waarmee de app meldingen ophaalt.
+_APP_URL_BY_API = {
+    DEFAULT_BASE_URL: DEFAULT_APP_URL,
+    "https://gqncu23i4i.execute-api.eu-central-1.amazonaws.com": "https://app-dev.huurklaar.be",
+}
+
+
+def app_url_for(base_url: str) -> str:
+    """Webadres van de app bij een API-adres. Een onbekend of leeg adres geeft de productie-app."""
+    return _APP_URL_BY_API.get(base_url.strip().rstrip("/").lower(), DEFAULT_APP_URL)

@@ -263,3 +263,38 @@ def test_lock_wordt_vrijgegeven_na_een_fout_in_de_dialoog(acties, ui):
     ui.ask_settings = NepUi.ask_settings.__get__(ui)  # type: ignore[method-assign]
     acties.settings()
     assert len(ui.asked) == 1
+
+
+# -- eerste start ---------------------------------------------------------------------------------
+def test_eerste_start_zonder_instellingen_opent_de_flow_een_keer(acties, ui):
+    thread = acties.first_run()
+    assert thread is not None
+    thread.join(timeout=WACHT)
+    assert not thread.is_alive()
+    assert len(ui.asked) == 1 and ui.asked[0][1] == DEFAULT_BASE_URL
+
+
+def test_eerste_start_met_adres_zonder_sleutel_opent_de_flow(acties, controller, ui, server):
+    controller.config.base_url = server.url
+    thread = acties.first_run()
+    assert thread is not None
+    thread.join(timeout=WACHT)
+    assert not thread.is_alive()
+    assert len(ui.asked) == 1 and ui.asked[0][1] == server.url
+
+
+def test_eerste_start_met_adres_en_sleutel_opent_niets(acties, controller, ui, server):
+    controller.configure(server.url, FAKE_KEY)
+    thread = acties.first_run()
+    assert thread is not None
+    thread.join(timeout=WACHT)
+    assert not thread.is_alive()
+    assert ui.asked == []
+
+
+def test_eerste_start_gebeurt_hoogstens_een_keer(acties, ui):
+    eerste = acties.first_run()
+    assert acties.first_run() is None  # tweede oproep start niets
+    assert eerste is not None
+    eerste.join(timeout=WACHT)
+    assert len(ui.asked) == 1

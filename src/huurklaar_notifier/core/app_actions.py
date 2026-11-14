@@ -51,6 +51,8 @@ class AppActions:
         self.ui = ui
         # Niet-blokkerend: een tweede klik op Instellingen terwijl het venster open staat doet niets.
         self._settings_lock = threading.Lock()
+        self._first_run_lock = threading.Lock()
+        self._first_run_done = False
 
     def handle(self, entry: Entry) -> None:
         action = entry.action
@@ -85,6 +87,27 @@ class AppActions:
             for t in toasts:
                 notifier.notify(t.title, t.body, t.url)
             rebuild = True
+
+    def first_run(self) -> threading.Thread | None:
+        """Opent één keer per proces de instellingen als er nog geen adres of sleutel is.
+
+        Geeft de controle-thread terug (of `None` bij een volgende oproep). De Keychain wordt op die thread gelezen,
+        niet op de UI-thread: op de Mac kan dat een systeemvenster tonen.
+        """
+        with self._first_run_lock:
+            if self._first_run_done:
+                return None
+            self._first_run_done = True
+        thread = threading.Thread(target=self._first_run_check, name="first-run", daemon=True)
+        thread.start()
+        return thread
+
+    def _first_run_check(self) -> None:
+        try:
+            if not self.c.config.base_url or not self.c.platform.secrets.get():
+                self.settings()
+        except Exception as e:  # de eerste start mag de app nooit laten stoppen; enkel het type loggen
+            log.warning("eerste start mislukt: %s", type(e).__name__)
 
     def settings(self) -> None:
         """De instellingenflow. Draait op een eigen thread, want de dialoog blokkeert."""
