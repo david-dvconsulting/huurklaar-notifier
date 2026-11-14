@@ -47,8 +47,9 @@ class Controller:
         return resolve_language(self.config.language, self.platform.system_languages())
 
     def set_language(self, setting: str) -> None:
-        self.config.language = setting
-        self.store.save(self.config)
+        with self._lock:  # de poll-thread schrijft onder dezelfde lock
+            self.config.language = setting
+            self.store.save(self.config)
 
     # -- instellingen --------------------------------------------------------
     def configure(self, base_url: str, key: str | None) -> None:
