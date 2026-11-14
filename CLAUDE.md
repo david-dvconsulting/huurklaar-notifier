@@ -26,7 +26,7 @@ Verificatie, dezelfde stappen als CI. Draai ze vóór je zegt dat iets klaar is:
 - `core/` importeert nooit een GUI.
   - `api.py`: HTTP-client.
   - `models.py`: `parse_snapshot` blijft bewust tolerant voor nieuwe velden.
-  - `state.py`: `State` met statussen, back-off (`BACKOFF_MAX`) en de `seen`-logica (`_new_toasts`, `MAX_SEEN`).
+  - `state.py`: `State` met statussen, back-off (`BACKOFF_MAX`) en de `seen`-logica (`_new_toasts`, `MAX_SEEN`). Een poll geeft een `Delivery(toasts, withdraw)`: de nieuwe meldingen (`Toast` met `key` = item-id en `group` = soort, of `"summary"` voor beide) en de ids die uit `seen` verdwenen zijn. Bij een afgekapte lijst of een fout trekt ze niets in.
   - `controller.py`: `Controller` met `_lock`, `poll`, `configure` en `set_language`.
   - `poller.py`: `Poller` en `UpdatePoller`, elk op een eigen thread.
   - `menu.py`: `build_menu` en `kind_label`.
@@ -35,8 +35,10 @@ Verificatie, dezelfde stappen als CI. Draai ze vóór je zegt dat iets klaar is:
   - `config.py`: `ConfigStore` schrijft atomair weg.
   - Verder: `updates.py`, `tls.py`, `version.py`, `selftest.py`.
 - `platform/` bevat per platform de sleutelopslag, de meldingen, de menubalk of tray en "start bij aanmelden".
-  - `macos.py`: rumps. `MenubarApp._tick` draait elke seconde op de hoofdthread.
+  - `base.py`: de protocollen. Een `Notifier` heeft `notify(toast)` en `withdraw(keys)`, en werpt nooit. `drain` trekt eerst in en toont daarna.
+  - `macos.py`: rumps. `MenubarApp._tick` draait elke seconde op de hoofdthread. `MacNotifier` gebruikt `request_id(key)` uit `macos_ids.py` (zonder AppKit, dus ook op Windows testbaar) als id en de groep als `threadIdentifier`.
   - `windows.py`: alleen importeerbaar op Windows. `TrayApp._loop` draait op een eigen thread.
+  - `windows_notifier.py`: win11toast met `tag` = `toast_tag(key)` (sha1, 32 tekens; Windows staat hoogstens 64 toe) en de vaste groep `"hk"`. `clear_toast` zonder tag wist de hele groep, geef dus altijd een tag mee. win11toast is op de Mac niet geïnstalleerd: lees de API in de bron (`win11toast.py` in de GitHub-repo `GitHub30/win11toast`).
 - `testing/` bevat de nep-server, nep-GitHub en het nep-platform. De tests en `--selftest` gebruiken ze allebei.
 
 ## Threads: lees dit vóór je toestand of config aanraakt
