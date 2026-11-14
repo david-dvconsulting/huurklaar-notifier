@@ -19,6 +19,23 @@ def test_zelfde_melding_niet_twee_keer_ook_na_herstart(controller, tmp_path):
     assert "task-1" in ConfigStore(tmp_path).load().seen
 
 
+def test_afgekapte_lijst_meldt_terugkerende_melding_niet_opnieuw(controller, server):
+    controller.poll()
+    server.body = {**SAMPLE, "items": [], "truncated": True}
+    assert controller.poll() == []
+    assert "task-1" in controller.config.seen
+    server.body = {**SAMPLE, "truncated": True}
+    assert controller.poll() == []
+
+
+def test_niet_afgekapte_lijst_meldt_terugkerende_melding_opnieuw(controller, server):
+    controller.poll()
+    server.body = {**SAMPLE, "items": [], "truncated": False}
+    assert controller.poll() == []
+    server.body = {**SAMPLE, "truncated": False}
+    assert [t.title for t in controller.poll()] == ["Indexatie nakijken"]
+
+
 def test_veel_nieuwe_meldingen_geven_een_samenvatting(controller, server):
     many = [{**SAMPLE["items"][0], "id": f"t{i}"} for i in range(5)]
     server.body = {**SAMPLE, "items": many, "counts": {"total": 5, "overdue": 5, "actionRequired": 5}}
