@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import threading
 import time
 from collections.abc import Callable
@@ -9,7 +10,7 @@ from dataclasses import dataclass
 
 from .. import __version__
 from ..platform.base import Platform
-from .api import ApiClient, validate_base_url, validate_key
+from .api import ApiClient, AuthError, validate_base_url, validate_key
 from .config import Config, ConfigStore
 from .i18n import resolve_language
 from .state import State, Toast
@@ -19,6 +20,16 @@ from .updates import DAY, Release, UpdateCheckError, fetch_latest_release, newer
 @dataclass(frozen=True, slots=True)
 class PollResult:
     toasts: list[Toast]
+
+
+@dataclass(frozen=True, slots=True)
+class View:
+    """Een consistente kopie van wat de UI nodig heeft om het menu te tekenen."""
+
+    state: State
+    language: str
+    language_setting: str
+    update: Release | None
 
 
 class Controller:
@@ -40,6 +51,11 @@ class Controller:
         self.wake = threading.Event()  # 'nu vernieuwen' of nieuwe instellingen
         self._update_fetch = update_fetch
         self._current_version = current_version
+        # Telt hoe vaak adres of sleutel veranderd is; zie `poll`.
+        self._generation = 0
+        # De laatst gemaakte client, met het adres en de sleutel waarmee ze gemaakt is. Zolang het adres gelijk is,
+        # lezen we de sleutel niet opnieuw uit de Keychain. Alles eromheen gebeurt onder `_lock`.
+        self._client_cache: tuple[str, str, ApiClient] | None = None
 
     # -- taal --------------------------------------------------------------
     @property
@@ -64,6 +80,8 @@ class Controller:
             if new_key is not None or url != self.config.base_url:
                 self.config.seen = []  # ander account of adres: alles is weer nieuw
             self.config.base_url = url
+            self._generation += 1  # een lopende poll met de oude client moet haar resultaat weggooien
+            self._client_cache = None  # de volgende poll maakt een client met de nieuwe instellingen
             self.store.save(self.config)
         self.wake.set()
 
@@ -72,22 +90,56 @@ class Controller:
         with self._lock:
             client = self._client()
             hhmm = time.strftime("%H:%M", time.localtime(self._clock()))
-            toasts = self.state.poll(client, self.config, self.language, hhmm)
-            self.store.save(self.config)  # onthoudt welke meldingen al getoond zijn
+            generation = self._generation
+        # De netwerkaanvraag duurt tot 10 s: nooit met de lock, anders hangt de UI-thread erop.
+        result = State.fetch(client)
+        with self._lock:
+            # Veranderde `configure()` intussen adres of sleutel, dan hoort dit antwoord bij het oude
+            # account. Verwerken zou `seen` van dat account terugzetten (configure wist het net) en
+            # de status van het oude account tonen. We gooien het weg; `configure` wekt de poller al.
+            if generation != self._generation:
+                return []
+            if isinstance(result, AuthError):
+                # Een geweigerde sleutel: de volgende poll leest de sleutel opnieuw uit de Keychain.
+                self._client_cache = None
+            before = list(self.config.seen)
+            toasts = self.state.apply(result, self.config, self.language, hhmm)
+            # `seen` verandert enkel als er een melding bij komt of verdwijnt. Alleen dan schrijven we weg,
+            # zodat een gewone poll niets naar de schijf stuurt.
+            if self.config.seen != before:
+                self.store.save(self.config)
             return toasts
+
+    def view(self) -> View:
+        """Alles wat de UI nodig heeft, in één korte lock-sectie, zodat het menu een consistente kopie leest."""
+        with self._lock:
+            return View(
+                copy.copy(self.state),
+                self.language,
+                self.config.language,
+                self._newer_release(self.config.update_version),
+            )
 
     def next_delay(self) -> float | None:
         with self._lock:
             return self.state.next_delay()
 
     def _client(self) -> ApiClient | None:
+        """Geeft de bewaarde client als het adres nog klopt, anders maakt er een met de sleutel uit de Keychain."""
         if not self.config.base_url:
             return None
+        cached = self._client_cache
+        if cached is not None and cached[0] == self.config.base_url:
+            return cached[2]
         try:
             key = self.platform.secrets.get()
-            return self._client_factory(self.config.base_url, key) if key else None
+            if not key:
+                return None
+            client = self._client_factory(self.config.base_url, key)
         except Exception:  # Keychain geweigerd of ongeldig adres: behandel als 'niet aangemeld'
-            return None
+            return None  # niets cachen: de volgende poll probeert het opnieuw
+        self._client_cache = (self.config.base_url, key, client)
+        return client
 
     # -- updatecheck (KAN-121) -----------------------------------------------------
     @property
@@ -95,6 +147,9 @@ class Controller:
         """De nieuwere versie die we kennen, of `None`. Leest enkel de bewaarde waarde: nooit netwerk."""
         with self._lock:
             version = self.config.update_version
+        return self._newer_release(version)
+
+    def _newer_release(self, version: str) -> Release | None:
         if not version:
             return None
         return newer_than_current(Release(version, release_url(version)), self._current_version)

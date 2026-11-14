@@ -41,7 +41,9 @@ def run(output: str | None = None) -> int:
         server.status = 500
         c.poll()
         check(c.state.status is Status.OFFLINE, "serverfout is geen verbinding")
-        c.platform.secrets.set("hkn_andere_sleutel_enkel_test")
+        # Via `configure` zoals de instellingen: een sleutel die buiten `configure` verandert, wordt pas na
+        # een authfout opgepikt (de client-cache).
+        c.configure(server.url, "hkn_andere_sleutel_enkel_test")
         c.poll()
         check(c.state.status is Status.AUTH_FAILED and c.next_delay() is None, "ongeldige sleutel")
 

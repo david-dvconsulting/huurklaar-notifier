@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Hashable, Iterable
 from dataclasses import dataclass
 
 from .. import __version__
@@ -106,3 +107,26 @@ def build_menu(
         Entry(t("menu.quit"), action=QUIT),
     ]
     return entries
+
+
+class MenuCache:
+    """Onthoudt de laatst getekende staat, zodat een platform het menu enkel opnieuw opbouwt als er iets veranderde.
+
+    Zonder dit bouwt elke poll (minstens om de 60 s) het hele menu opnieuw op, ook bij een identiek antwoord.
+    `title` is wat het platform naast de items nog toont (Mac: titeltekst; Windows: bv. `(badge, tooltip)`).
+    """
+
+    def __init__(self) -> None:
+        self._last: tuple[tuple[Entry, ...], Hashable] | None = None
+
+    def changed(self, entries: Iterable[Entry], title: Hashable) -> bool:
+        """`True` (en de nieuwe staat onthouden) als die verschilt van de vorige; de eerste keer altijd `True`."""
+        state = (tuple(entries), title)
+        if state == self._last:
+            return False
+        self._last = state
+        return True
+
+    def reset(self) -> None:
+        """Vergeet de staat. Roep dit op als het tekenen na `changed()` mislukte, zodat de volgende poging tekent."""
+        self._last = None
