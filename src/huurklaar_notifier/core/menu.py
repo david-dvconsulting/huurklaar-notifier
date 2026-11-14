@@ -18,6 +18,7 @@ from .updates import Release
 
 MAX_MENU_ITEMS = 10
 MAX_LABEL = 70
+MAX_ACCOUNT = 24  # een lange accountnaam wordt ingekort, zodat de vervaldatum heel blijft
 
 # Acties die een platform afhandelt
 REFRESH, SETTINGS, AUTOSTART, QUIT = "refresh", "settings", "autostart", "quit"
@@ -156,14 +157,29 @@ def _distribute(groups: list[tuple[str, list[Item]]], limit: int) -> list[list[I
     return shown
 
 
-def _item_entry(item: Item, lang: str, today: date, with_kind: bool) -> Entry:
-    """Eén regel voor een item. `with_kind`: zet de soort ervoor (bij één groep, zonder kopregel)."""
+def _has_multiple_accounts(items: Iterable[Item]) -> bool:
+    """`True` als er minstens twee verschillende niet-lege accountnamen zijn (over het hele antwoord)."""
+    return len({item.account_name for item in items if item.account_name}) > 1
+
+
+def _item_entry(item: Item, lang: str, today: date, with_kind: bool, with_account: bool) -> Entry:
+    """Eén regel voor een item. `with_kind`: zet de soort ervoor (bij één groep, zonder kopregel).
+
+    `with_account`: zet de accountnaam na het pand (bij meerdere accounts). Die blijft bij het inkorten
+    na de titel en het pand, zodat de accountnaam en de vervaldatum leesbaar blijven.
+    """
     before = "⚠️ " if item.overdue else ""
     if with_kind:
         before += kind_label(lang, item.kind) + ": "
     where = " — " + item.property_label if item.property_label else ""
     due = due_label(item.due_date, today, lang)
     after = " · " + due if due else ""
+    if with_account and item.account_name:
+        # De accountnaam mag de titel niet onder de minimale lengte drukken: de ruimte voor de titel
+        # blijft dus eerst gereserveerd. Zo blijft de vervaldatum heel, ook bij een lange soort.
+        room = MAX_LABEL - len(before) - _MIN_TITLE - len(" · ") - len(after)
+        account = _cut(item.account_name, min(MAX_ACCOUNT, room))
+        after = f" · {account}{after}"
     return Entry(_fit(before, item.title, where, after), url=item.href if is_openable(item.href) else None)
 
 
@@ -190,10 +206,15 @@ def build_menu(
         entries.append(SEPARATOR)
         groups = group_items(snap.items)
         shown = _distribute(groups, MAX_MENU_ITEMS)
+        # Over het hele antwoord, niet enkel de getoonde items: ook dan zijn er meerdere accounts.
+        with_account = _has_multiple_accounts(snap.items)
         for (key, group), visible in zip(groups, shown, strict=True):
             if len(groups) > 1 and visible:  # bij één groep zegt het voorvoegsel de soort al
                 entries.append(Entry(t(f"group.{key}", n=len(group)), enabled=False))
-            entries += [_item_entry(item, lang, today, with_kind=len(groups) == 1) for item in visible]
+            entries += [
+                _item_entry(item, lang, today, with_kind=len(groups) == 1, with_account=with_account)
+                for item in visible
+            ]
         rest = snap.total - sum(len(v) for v in shown)
         if rest > 0:
             entries.append(Entry(t("menu.more", n=rest), url=_app_url(list(snap.items))))

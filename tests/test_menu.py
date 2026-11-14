@@ -371,3 +371,155 @@ def test_kopregels_bestaan_in_elke_taal(controller, server, lang):
     koppen = [e.label for e in entries if not e.enabled and e.label.endswith("(1)")]
     assert len(koppen) == 2
     assert not any(k.startswith("group.") for k in koppen)
+
+
+def _met_account(kind, n, account, **extra):
+    return _item(kind, n, accountName=account, **extra)
+
+
+def test_een_account_toont_geen_accountnaam(controller, server):
+    # Alle items dezelfde accountnaam: dat is één account, dus geen accountdeel in de labels.
+    items = [_met_account("task", 1, "Verhuur Peeters"), _met_account("complaint", 1, "Verhuur Peeters")]
+    lijst = labels(_toon(controller, server, items))
+    assert "Taak: task 1" not in lijst  # twee groepen: de kopregel zegt de soort
+    assert "task 1" in lijst and "complaint 1" in lijst
+    assert not any("Verhuur Peeters" in x for x in lijst)
+
+
+def test_twee_accounts_zetten_de_naam_na_het_pand_en_voor_de_datum(controller, server):
+    items = [
+        {
+            **SAMPLE["items"][0],
+            "id": "t1",
+            "kind": "task",
+            "title": "Lekkende kraan",
+            "accountName": "Verhuur Peeters",
+            "propertyLabel": "Kerkstraat 1",
+            "dueDate": "2026-11-11",
+        },
+        {
+            **SAMPLE["items"][1],
+            "id": "c1",
+            "kind": "complaint",
+            "title": "Schimmel",
+            "accountName": "Voorbeeld Verhuur",
+            "propertyLabel": "Dorpsweg 2",
+            "dueDate": "2026-11-15",
+        },
+    ]
+    lijst = labels(_toon(controller, server, items))
+    assert "⚠️ Lekkende kraan — Kerkstraat 1 · Verhuur Peeters · 3 d te laat" in lijst
+    assert "Schimmel — Dorpsweg 2 · Voorbeeld Verhuur · morgen" in lijst
+
+
+def test_item_zonder_accountnaam_krijgt_geen_accountdeel(controller, server):
+    items = [
+        _met_account("task", 1, "Verhuur Peeters"),
+        _met_account("complaint", 1, "Voorbeeld Verhuur"),
+        _item("complaint", 2, dueDate="2026-11-15"),  # zonder accountName
+    ]
+    lijst = labels(_toon(controller, server, items))
+    assert "complaint 2 · morgen" in lijst
+    assert not any(" · · " in x or " ·  " in x or x.endswith(" ·") for x in lijst)
+
+
+def test_items_zonder_accountnaam_blijven_ongewijzigd(controller, server):
+    # Geen naam, lege naam of allemaal None: twee groepen krijgen het gewone label, zonder accountdeel.
+    items = [_item("task", 1, accountName=None), _item("complaint", 1, accountName="")]
+    lijst = labels(_toon(controller, server, items))
+    start = lijst.index("Klachten (1)")
+    assert lijst[start : start + 4] == ["Klachten (1)", "complaint 1", "Taken (1)", "task 1"]
+
+
+def test_accountnaam_telt_het_hele_antwoord_niet_enkel_de_getoonde_items(controller, server):
+    # Tien getoonde items van één account; het elfde, verborgen item is van een ander account.
+    items = [_met_account("task", i, "Verhuur Peeters") for i in range(10)]
+    items.append(_met_account("task", 10, "Voorbeeld Verhuur"))
+    lijst = labels(_toon(controller, server, items))
+    assert "Taak: task 0 · Verhuur Peeters" in lijst
+    assert "… en nog 1 in Huurklaar" in lijst
+
+
+def test_lange_titel_wordt_eerst_ingekort_account_en_datum_blijven_heel(controller, server):
+    items = [
+        {
+            **SAMPLE["items"][0],
+            "id": "t1",
+            "kind": "task",
+            "title": "T" * 120,
+            "accountName": "Verhuur Peeters",
+            "propertyLabel": "Kerkstraat 1",
+            "dueDate": "2026-11-11",
+        },
+        _met_account("complaint", 1, "Voorbeeld Verhuur"),
+    ]
+    label = next(e.label for e in _toon(controller, server, items) if e.url and e.label.startswith("⚠️"))
+    assert label == f"⚠️ {'T' * 19}… — Kerkstraat 1 · Verhuur Peeters · 3 d te laat"
+    assert len(label) == MAX_LABEL
+
+
+def test_lang_pand_en_titel_met_twee_accounts_blijft_binnen_maximum(controller, server):
+    items = [
+        {
+            **SAMPLE["items"][0],
+            "id": "t1",
+            "kind": "task",
+            "title": "T" * 120,
+            "accountName": "Verhuur Peeters",
+            "propertyLabel": "P" * 120,
+            "dueDate": "2026-11-11",
+        },
+        _met_account("complaint", 1, "Voorbeeld Verhuur"),
+    ]
+    label = next(e.label for e in _toon(controller, server, items) if e.url and e.label.startswith("⚠️"))
+    assert len(label) <= MAX_LABEL
+    assert label.startswith("⚠️ TT")
+    assert label.endswith(" · Verhuur Peeters · 3 d te laat")
+
+
+def test_extreme_accountnaam_kort_enkel_de_naam_in_en_datum_blijft_heel(controller, server):
+    items = [
+        {
+            **SAMPLE["items"][0],
+            "id": "t1",
+            "kind": "task",
+            "title": "Lekkage",
+            "accountName": "X" * 120,
+            "propertyLabel": "Kerkstraat 1",
+            "dueDate": "2026-11-11",
+        },
+        _met_account("complaint", 1, "Voorbeeld Verhuur"),
+    ]
+    label = next(e.label for e in _toon(controller, server, items) if e.url and e.label.startswith("⚠️"))
+    assert label == f"⚠️ Lekkage — Kerkstraat 1 · {'X' * 23}… · 3 d te laat"
+    assert len(label) <= MAX_LABEL
+
+
+def test_extreme_accountnaam_bij_één_groep_met_soortvoorvoegsel(controller, server):
+    # Het langste voorvoegsel ("Taak voor jou: ") plus een lange datum: de naam moet nog steeds passen.
+    items = [
+        {
+            **SAMPLE["items"][0],
+            "id": "t1",
+            "kind": "tenantTask",
+            "title": "Lekkage",
+            "accountName": "X" * 120,
+            "propertyLabel": None,
+            "dueDate": "2026-11-11",
+        },
+        {
+            **SAMPLE["items"][0],
+            "id": "t2",
+            "kind": "tenantTask",
+            "title": "Lekkage 2",
+            "accountName": "Voorbeeld Verhuur",
+            "propertyLabel": None,
+            "dueDate": "2026-11-11",
+        },
+    ]
+    lijst = [e.label for e in _toon(controller, server, items) if e.label.startswith("⚠️")]
+    assert len(lijst) == 2
+    for label in lijst:
+        assert len(label) <= MAX_LABEL
+        assert label.endswith(" · 3 d te laat")
+    assert lijst[0].startswith("⚠️ Taak voor jou: Lekkage · ") and "…" in lijst[0]
