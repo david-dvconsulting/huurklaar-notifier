@@ -37,6 +37,13 @@ MAX_TOASTS = 3  # meer nieuwe meldingen in één poll worden één samenvatting
 MAX_SEEN = 500
 
 
+class NotConfigured(Exception):
+    """Resultaat van `State.fetch` zonder client: er is niets om te bevragen."""
+
+
+FetchResult = Snapshot | Exception
+
+
 def status_for(snapshot: Snapshot) -> Status:
     if not snapshot.enabled:
         return Status.DISABLED
@@ -53,22 +60,38 @@ class State:
         self.updated_at: str | None = None  # HH:MM van het laatste geslaagde antwoord
         self._rng = rng
 
-    def poll(self, client: ApiClient | None, config: Config, lang: str, now_hhmm: str) -> list[Toast]:
-        """Doet één poll, werkt de toestand bij en geeft de meldingen die nu getoond moeten worden."""
+    @staticmethod
+    def fetch(client: ApiClient | None) -> FetchResult:
+        """Doet enkel de netwerkaanvraag en wijzigt geen toestand, dus veilig buiten de lock.
+
+        Geeft het antwoord of de verwachte fout terug (niet geworpen). Zonder client geeft ze
+        `NotConfigured()` terug. Onverwachte fouten worden wel geworpen.
+        """
         if client is None:
+            return NotConfigured()
+        try:
+            return client.fetch()
+        except (AuthError, NetworkError, ProtocolError, ApiError) as e:
+            return e
+
+    def apply(self, result: FetchResult, config: Config, lang: str, now_hhmm: str) -> list[Toast]:
+        """Verwerkt het resultaat van `fetch`: werkt de toestand bij en geeft de meldingen die nu getoond moeten worden."""
+        if isinstance(result, NotConfigured):
             self.status, self.snapshot = Status.NOT_CONFIGURED, None
             return []
-        try:
-            snap = client.fetch()
-        except AuthError:
+        if isinstance(result, AuthError):
             self.status, self.snapshot, self.failures = Status.AUTH_FAILED, None, 0
             return []
-        except (NetworkError, ProtocolError, ApiError):
+        if isinstance(result, Exception):  # NetworkError, ProtocolError, ApiError
             self.status, self.failures = Status.OFFLINE, self.failures + 1
             return []
         self.failures = 0
-        self.snapshot, self.status, self.updated_at = snap, status_for(snap), now_hhmm
-        return self._new_toasts(snap, config, lang)
+        self.snapshot, self.status, self.updated_at = result, status_for(result), now_hhmm
+        return self._new_toasts(result, config, lang)
+
+    def poll(self, client: ApiClient | None, config: Config, lang: str, now_hhmm: str) -> list[Toast]:
+        """Doet één poll: `fetch` en daarna `apply`."""
+        return self.apply(self.fetch(client), config, lang, now_hhmm)
 
     def next_delay(self) -> float | None:
         """Seconden tot de volgende poll; `None` = wachten op nieuwe instellingen (geen nutteloos bellen)."""

@@ -114,11 +114,12 @@ class TrayApp:
 
     def _render(self) -> None:
         c = self.c
+        v = c.view()  # één korte lock-sectie; daarna werken we op de kopie
         entries = build_menu(
-            c.state, c.language, c.config.language, c.platform.autostart.is_enabled(), c.update
+            v.state, v.language, v.language_setting, c.platform.autostart.is_enabled(), v.update
         )
-        self.icon.icon = render_icon(badge_for(c.state))
-        self.icon.title = tooltip(status_line(c.state, c.language), APP_NAME)
+        self.icon.icon = render_icon(badge_for(v.state))
+        self.icon.title = tooltip(status_line(v.state, v.language), APP_NAME)
         self.icon.menu = pystray.Menu(
             *build_items(entries, pystray.MenuItem, pystray.Menu, pystray.Menu.SEPARATOR, self._on_entry)
         )

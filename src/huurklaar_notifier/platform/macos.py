@@ -209,14 +209,11 @@ class MenubarApp(rumps.App):
                 self._rebuild_needed = False  # pas na een geslaagde render
 
     def _render(self) -> None:
+        v = self.c.view()  # één korte lock-sectie; daarna werken we op de kopie
         entries = build_menu(
-            self.c.state,
-            self.c.language,
-            self.c.config.language,
-            self.c.platform.autostart.is_enabled(),
-            self.c.update,
+            v.state, v.language, v.language_setting, self.c.platform.autostart.is_enabled(), v.update
         )
-        self.title = title_for(self.c.state)
+        self.title = title_for(v.state)
         self.menu.clear()
         self.menu.update(self._items(entries))
 
