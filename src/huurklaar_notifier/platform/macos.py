@@ -12,7 +12,6 @@ import plistlib
 import queue
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 import rumps
@@ -35,6 +34,7 @@ from ..core.menu import Entry, MenuCache, build_menu, title_for
 from ..core.poller import Poller, UpdatePoller
 from ..core.state import Delivery, Toast
 from .keyring_store import KeyringSecretStore
+from .macos_ids import request_id
 
 log = logging.getLogger(__name__)
 
@@ -69,7 +69,12 @@ class _Delegate(NSObject):
 
 
 class MacNotifier:
-    def __init__(self) -> None:
+    def __init__(self, center=None) -> None:
+        """`center` is enkel voor tests: een nep-center, zonder delegate en zonder toestemmingsvraag."""
+        if center is not None:
+            self._center = center
+            self._delegate = None
+            return
         self._center = UNUserNotificationCenter.currentNotificationCenter()
         self._delegate = _Delegate.alloc().init()  # sterke verwijzing: het center houdt enkel een zwakke
         self._center.setDelegate_(self._delegate)
@@ -78,18 +83,27 @@ class MacNotifier:
         )
 
     def notify(self, toast: Toast) -> None:
-        content = UNMutableNotificationContent.alloc().init()
-        content.setTitle_(toast.title)
-        content.setBody_(toast.body)
-        content.setSound_(UNNotificationSound.defaultSound())
-        content.setUserInfo_({"url": toast.url} if toast.url else {})
-        request = UNNotificationRequest.requestWithIdentifier_content_trigger_(
-            f"hk-{time.time_ns()}", content, None
-        )
-        self._center.addNotificationRequest_withCompletionHandler_(request, lambda err: None)
+        """Toont een melding; dezelfde sleutel vervangt de vorige, en macOS stapelt per groep."""
+        try:
+            content = UNMutableNotificationContent.alloc().init()
+            content.setTitle_(toast.title)
+            content.setBody_(toast.body)
+            content.setSound_(UNNotificationSound.defaultSound())
+            content.setThreadIdentifier_(toast.group)
+            content.setUserInfo_({"url": toast.url} if toast.url else {})
+            request = UNNotificationRequest.requestWithIdentifier_content_trigger_(
+                request_id(toast.key), content, None
+            )
+            self._center.addNotificationRequest_withCompletionHandler_(request, lambda err: None)
+        except Exception as e:  # een fout in een melding mag de app nooit doen vallen
+            log.warning("Melding tonen mislukt: %s", type(e).__name__)
 
     def withdraw(self, keys: list[str]) -> None:
-        """Trekt meldingen in; volgt in KAN-273."""
+        """Haalt de meldingen van afgewerkte items weg uit het Berichtencentrum."""
+        try:
+            self._center.removeDeliveredNotificationsWithIdentifiers_([request_id(k) for k in keys])
+        except Exception as e:
+            log.warning("Meldingen intrekken mislukt: %s", type(e).__name__)
 
 
 class LaunchAgentAutostart:
