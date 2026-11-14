@@ -6,6 +6,7 @@ import re
 from collections.abc import Hashable, Iterable
 from dataclasses import dataclass
 from datetime import date
+from typing import Literal
 
 from .. import __version__
 from .api import is_openable
@@ -48,6 +49,17 @@ def title_for(state: State) -> str:
     if state.status in (Status.OFFLINE, Status.AUTH_FAILED, Status.NOT_CONFIGURED):
         return "!"
     return ""
+
+
+def title_style(state: State) -> Literal["normal", "alert"]:
+    """Kleur van de titel (Mac): 'alert' (rood) enkel als er iets te laat is, zoals de rode badge op Windows.
+
+    Bij OFFLINE blijft het 'normal': de titel is dan '!' en de oude snapshot kan verouderd zijn, dus rood zou
+    een te-laatmelding tonen die we niet meer kunnen bevestigen. Het menu zelf toont de oude items nog wel.
+    """
+    if state.status is Status.ATTENTION and state.snapshot and state.snapshot.overdue > 0:
+        return "alert"
+    return "normal"
 
 
 def status_line(state: State, lang: str) -> str:

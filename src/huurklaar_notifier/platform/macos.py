@@ -16,8 +16,15 @@ import time
 from pathlib import Path
 
 import rumps
-from AppKit import NSLocale, NSWorkspace
-from Foundation import NSURL, NSObject
+from AppKit import (
+    NSColor,
+    NSFont,
+    NSFontAttributeName,
+    NSForegroundColorAttributeName,
+    NSLocale,
+    NSWorkspace,
+)
+from Foundation import NSURL, NSAttributedString, NSObject
 from UserNotifications import (
     UNAuthorizationOptionAlert,
     UNAuthorizationOptionSound,
@@ -31,7 +38,7 @@ from ..core.api import is_openable
 from ..core.app_actions import AppActions
 from ..core.controller import Controller
 from ..core.i18n import translate
-from ..core.menu import Entry, MenuCache, build_menu, title_for
+from ..core.menu import Entry, MenuCache, build_menu, title_for, title_style
 from ..core.poller import Poller, UpdatePoller
 from ..core.state import Toast
 from .keyring_store import KeyringSecretStore
@@ -235,16 +242,43 @@ class MenubarApp(rumps.App):
             v.state, v.language, v.language_setting, self.c.platform.autostart.is_enabled(), v.update
         )
         title = title_for(v.state)
-        if not self._menu_cache.changed(entries, title):
+        style = title_style(v.state)
+        if not self._menu_cache.changed(entries, (title, style)):  # ook een kleurwissel tekent opnieuw
             return  # niets veranderd: het menu niet opnieuw bouwen
         try:
             self.title = title
+            self._style_title(title, style)  # vangt eigen fouten op: kleuren mag het tekenen niet stoppen
             forget_callbacks(self.menu.values())
             self.menu.clear()
             self.menu.update(self._items(entries))
         except Exception:
             self._menu_cache.reset()  # tekenen mislukt: de volgende poging moet opnieuw tekenen
             raise
+
+    def _style_title(self, title: str, style: str) -> None:
+        """Kleurt de titel rood bij 'alert'; bij 'normal' zet het de gewone tekst terug.
+
+        `self.title = ...` (rumps) zet enkel de gewone tekst van het statusitem. Een eerder gezette
+        attributed title blijft daardoor mogelijk hangen, dus bij 'normal' zetten we expliciet de gewone
+        titel opnieuw. rumps-internals (`_nsapp.nsstatusitem`) zijn niet publiek: faalt iets, dan blijft de
+        gewone titel staan en loggen we enkel het fouttype.
+        """
+        try:
+            button = self._nsapp.nsstatusitem.button()
+            if style == "alert" and title:
+                # systemRedColor past zich aan het lichte en donkere thema aan; zonder het lettertype van de
+                # menubalk zou de attributed title kleiner ogen dan de gewone titel.
+                attributes = {
+                    NSForegroundColorAttributeName: NSColor.systemRedColor(),
+                    NSFontAttributeName: NSFont.menuBarFontOfSize_(0),
+                }
+                button.setAttributedTitle_(
+                    NSAttributedString.alloc().initWithString_attributes_(title, attributes)
+                )
+            else:
+                button.setTitle_(title)  # vervangt een eventuele attributed title
+        except Exception as e:
+            log.warning("titel kleuren mislukt: %s", type(e).__name__)
 
     def _items(self, entries: list[Entry]) -> list:
         out: list = []
