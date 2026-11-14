@@ -1,11 +1,11 @@
 import json
 
-from huurklaar_notifier.core.state import Status
+from huurklaar_notifier.core.state import Delivery, Status
 from huurklaar_notifier.testing.fake_server import EMPTY, FAKE_KEY, SAMPLE
 
 
 def test_eerste_poll_geeft_een_melding_voor_de_actie(controller):
-    toasts = controller.poll()
+    toasts = controller.poll().toasts
     assert controller.state.status is Status.ATTENTION
     assert [t.title for t in toasts] == ["Indexatie nakijken"]
     assert toasts[0].url == "https://app.example.test/tasks/task-1"
@@ -13,7 +13,7 @@ def test_eerste_poll_geeft_een_melding_voor_de_actie(controller):
 
 def test_zelfde_melding_niet_twee_keer_ook_na_herstart(controller, tmp_path):
     controller.poll()
-    assert controller.poll() == []
+    assert controller.poll() == Delivery()
     from huurklaar_notifier.core.config import ConfigStore
 
     assert "task-1" in ConfigStore(tmp_path).load().seen
@@ -22,36 +22,36 @@ def test_zelfde_melding_niet_twee_keer_ook_na_herstart(controller, tmp_path):
 def test_afgekapte_lijst_meldt_terugkerende_melding_niet_opnieuw(controller, server):
     controller.poll()
     server.body = {**SAMPLE, "items": [], "truncated": True}
-    assert controller.poll() == []
+    assert controller.poll() == Delivery()
     assert "task-1" in controller.config.seen
     server.body = {**SAMPLE, "truncated": True}
-    assert controller.poll() == []
+    assert controller.poll() == Delivery()
 
 
 def test_niet_afgekapte_lijst_meldt_terugkerende_melding_opnieuw(controller, server):
     controller.poll()
     server.body = {**SAMPLE, "items": [], "truncated": False}
-    assert controller.poll() == []
+    assert controller.poll() == Delivery(withdraw=["task-1"])
     server.body = {**SAMPLE, "truncated": False}
-    assert [t.title for t in controller.poll()] == ["Indexatie nakijken"]
+    assert [t.title for t in controller.poll().toasts] == ["Indexatie nakijken"]
 
 
 def test_veel_nieuwe_meldingen_geven_een_samenvatting(controller, server):
     many = [{**SAMPLE["items"][0], "id": f"t{i}"} for i in range(5)]
     server.body = {**SAMPLE, "items": many, "counts": {"total": 5, "overdue": 5, "actionRequired": 5}}
-    toasts = controller.poll()
+    toasts = controller.poll().toasts
     assert len(toasts) == 1 and "5" in toasts[0].title
     assert toasts[0].url == "https://app.example.test/"
 
 
 def test_niets_te_doen(controller, server):
     server.body = EMPTY
-    assert controller.poll() == [] and controller.state.status is Status.IDLE
+    assert controller.poll() == Delivery() and controller.state.status is Status.IDLE
 
 
 def test_noodknop_geeft_geen_meldingen(controller, server):
     server.body = {**SAMPLE, "enabled": False}
-    assert controller.poll() == [] and controller.state.status is Status.DISABLED
+    assert controller.poll() == Delivery() and controller.state.status is Status.DISABLED
 
 
 def test_geen_verbinding_houdt_laatste_cijfers_en_back_off(controller, server):
@@ -109,3 +109,52 @@ def test_configure_zonder_bewaarde_sleutel_en_zonder_nieuwe_faalt(tmp_path, serv
 
     with pytest.raises(ValueError):
         Controller(FakePlatform(tmp_path)).configure(server.url, None)
+
+
+def test_toast_heeft_sleutel_en_groep_per_item(controller):
+    toast = controller.poll().toasts[0]
+    assert (toast.key, toast.group) == ("task-1", "task")
+
+
+def test_samenvatting_heeft_sleutel_en_groep_summary(controller, server):
+    many = [{**SAMPLE["items"][0], "id": f"t{i}"} for i in range(5)]
+    server.body = {**SAMPLE, "items": many, "counts": {"total": 5, "overdue": 5, "actionRequired": 5}}
+    toast = controller.poll().toasts[0]
+    assert (toast.key, toast.group) == ("summary", "summary")
+
+
+def test_opgelost_item_wordt_een_keer_ingetrokken(controller, server):
+    assert controller.poll().withdraw == []
+    server.body = {**SAMPLE, "items": []}
+    assert controller.poll().withdraw == ["task-1"]
+    assert controller.poll().withdraw == []  # niet opnieuw
+
+
+def test_intrekken_behoudt_volgorde_van_seen_zonder_dubbelen(controller, server):
+    items = [{**SAMPLE["items"][0], "id": f"t{i}"} for i in range(3)]
+    server.body = {**SAMPLE, "items": items}
+    controller.poll()
+    controller.config.seen = ["t2", "t0", "t2", "t1"]
+    server.body = {**SAMPLE, "items": []}
+    assert controller.poll().withdraw == ["t2", "t0", "t1"]
+
+
+def test_niets_intrekken_bij_afgekapte_lijst(controller, server):
+    controller.poll()
+    server.body = {**SAMPLE, "items": [], "truncated": True}
+    assert controller.poll().withdraw == []
+
+
+def test_niets_intrekken_bij_netwerkfout(controller, server):
+    controller.poll()
+    server.status = 500
+    assert controller.poll() == Delivery()
+    assert "task-1" in controller.config.seen
+
+
+def test_niets_intrekken_bij_geweigerde_sleutel(controller):
+    controller.poll()
+    controller.platform.secrets.set("hkn_ingetrokken_sleutel_test")
+    controller._client_cache = None  # de client leest de sleutel opnieuw
+    assert controller.poll() == Delivery()
+    assert controller.state.status is Status.AUTH_FAILED

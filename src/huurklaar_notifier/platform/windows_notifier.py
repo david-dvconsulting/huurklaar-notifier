@@ -12,6 +12,7 @@ import logging
 from collections.abc import Callable
 
 from ..core.api import is_openable
+from ..core.state import Toast
 from .windows_registry import AUMID
 
 log = logging.getLogger(__name__)
@@ -28,7 +29,8 @@ class WindowsNotifier:
         self._notify_fn = notify_fn
         self._app_id = app_id
 
-    def notify(self, title: str, body: str, url: str | None) -> None:
+    def notify(self, toast: Toast) -> None:
+        title, body, url = toast.title, toast.body, toast.url
         try:
             fn = self._notify_fn or _win11toast_notify()
             fn(
@@ -39,6 +41,9 @@ class WindowsNotifier:
             )
         except Exception:  # een melding mag de app nooit doen vallen; geen titel of tekst in het log
             log.warning("melding tonen mislukt", exc_info=True)
+
+    def withdraw(self, keys: list[str]) -> None:
+        """Trekt meldingen in; volgt in KAN-274."""
 
 
 def _win11toast_notify() -> Callable[..., object]:

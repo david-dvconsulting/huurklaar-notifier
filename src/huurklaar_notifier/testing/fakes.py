@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ..core.state import Toast
+
 
 class MemorySecrets:
     def __init__(self) -> None:
@@ -22,9 +24,15 @@ class MemorySecrets:
 class RecordingNotifier:
     def __init__(self) -> None:
         self.sent: list[tuple[str, str, str | None]] = []
+        self.toasts: list[Toast] = []
+        self.withdrawn: list[str] = []  # alle ingetrokken sleutels, in volgorde
 
-    def notify(self, title: str, body: str, url: str | None) -> None:
-        self.sent.append((title, body, url))
+    def notify(self, toast: Toast) -> None:
+        self.toasts.append(toast)
+        self.sent.append((toast.title, toast.body, toast.url))
+
+    def withdraw(self, keys: list[str]) -> None:
+        self.withdrawn.extend(keys)
 
 
 class MemoryAutostart:

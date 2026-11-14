@@ -4,7 +4,7 @@ import pytest
 
 from fake_winreg import FakeWinreg
 from huurklaar_notifier.core.menu import AUTOSTART, Entry, build_menu
-from huurklaar_notifier.core.state import Status
+from huurklaar_notifier.core.state import Status, Toast
 from huurklaar_notifier.platform.windows_icon import Badge, badge_for, render_icon
 from huurklaar_notifier.platform.windows_menu import MAX_TOOLTIP, build_items, tooltip
 from huurklaar_notifier.platform.windows_notifier import MAX_BODY, WindowsNotifier
@@ -56,7 +56,7 @@ def test_app_id_krijgt_naam_en_icoon():
 def test_melding_gebruikt_eigen_app_id_en_open_link():
     sent = []
     n = WindowsNotifier(lambda *a, **k: sent.append((a, k)))
-    n.notify("Titel", "Tekst", "https://app.example.test/tasks/1")
+    n.notify(Toast("Titel", "Tekst", "https://app.example.test/tasks/1", "task-1", "task"))
     assert sent == [(("Titel", "Tekst"), {"on_click": "https://app.example.test/tasks/1", "app_id": AUMID})]
 
 
@@ -65,19 +65,19 @@ def test_melding_gebruikt_eigen_app_id_en_open_link():
 )
 def test_melding_geeft_nooit_een_onveilige_link_door(url):
     sent = []
-    WindowsNotifier(lambda *a, **k: sent.append(k)).notify("t", "b", url)
+    WindowsNotifier(lambda *a, **k: sent.append(k)).notify(Toast("t", "b", url, "k", "task"))
     assert sent[0]["on_click"] is None
 
 
 def test_melding_kapt_lange_tekst_af_en_laat_de_app_niet_vallen():
     sent = []
-    WindowsNotifier(lambda *a, **k: sent.append(a)).notify("t", "x" * 1000, None)
+    WindowsNotifier(lambda *a, **k: sent.append(a)).notify(Toast("t", "x" * 1000, None, "k", "task"))
     assert len(sent[0][1]) == MAX_BODY
 
     def boom(*a, **k):
         raise OSError("winrt weigert")
 
-    WindowsNotifier(boom).notify("t", "b", None)  # geen uitzondering
+    WindowsNotifier(boom).notify(Toast("t", "b", None, "k", "task"))  # geen uitzondering
 
 
 # -- icoon --------------------------------------------------------------------------------------

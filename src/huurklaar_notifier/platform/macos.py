@@ -33,7 +33,7 @@ from ..core.controller import Controller
 from ..core.i18n import translate
 from ..core.menu import Entry, MenuCache, build_menu, title_for
 from ..core.poller import Poller, UpdatePoller
-from ..core.state import Toast
+from ..core.state import Delivery, Toast
 from .keyring_store import KeyringSecretStore
 
 log = logging.getLogger(__name__)
@@ -77,16 +77,19 @@ class MacNotifier:
             UNAuthorizationOptionAlert | UNAuthorizationOptionSound, lambda granted, err: None
         )
 
-    def notify(self, title: str, body: str, url: str | None) -> None:
+    def notify(self, toast: Toast) -> None:
         content = UNMutableNotificationContent.alloc().init()
-        content.setTitle_(title)
-        content.setBody_(body)
+        content.setTitle_(toast.title)
+        content.setBody_(toast.body)
         content.setSound_(UNNotificationSound.defaultSound())
-        content.setUserInfo_({"url": url} if url else {})
+        content.setUserInfo_({"url": toast.url} if toast.url else {})
         request = UNNotificationRequest.requestWithIdentifier_content_trigger_(
             f"hk-{time.time_ns()}", content, None
         )
         self._center.addNotificationRequest_withCompletionHandler_(request, lambda err: None)
+
+    def withdraw(self, keys: list[str]) -> None:
+        """Trekt meldingen in; volgt in KAN-273."""
 
 
 class LaunchAgentAutostart:
@@ -202,12 +205,12 @@ class MenubarApp(rumps.App):
             "Huurklaar", title="", icon=str(resource("menubar.png")), template=True, quit_button=None
         )
         self.c = controller
-        self._results: queue.Queue[list[Toast]] = queue.Queue()
+        self._results: queue.Queue[Delivery] = queue.Queue()
         self._rebuild_needed = True
         self._menu_cache = MenuCache()
         self._poller = Poller(controller, self._results.put)
-        # Een gevonden update tekent het menu opnieuw (een lege lijst = geen meldingen, wel herbouwen).
-        self._updates = UpdatePoller(controller, lambda: self._results.put([]))
+        # Een gevonden update tekent het menu opnieuw (een lege `Delivery` = geen meldingen, wel herbouwen).
+        self._updates = UpdatePoller(controller, lambda: self._results.put(Delivery()))
         self._timer = rumps.Timer(self._tick, 1)
         self.actions = AppActions(controller, _MacUi(self))
 

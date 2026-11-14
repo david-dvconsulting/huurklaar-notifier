@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from ..core.state import Toast
 
 
 class SecretStore(Protocol):
@@ -13,8 +16,11 @@ class SecretStore(Protocol):
 
 
 class Notifier(Protocol):
-    def notify(self, title: str, body: str, url: str | None) -> None:
-        """Toont een melding; een klik opent `url` (indien gegeven)."""
+    def notify(self, toast: Toast) -> None:
+        """Toont een melding; een klik opent `toast.url` (indien gegeven)."""
+
+    def withdraw(self, keys: list[str]) -> None:
+        """Trekt de meldingen met deze sleutels (`Toast.key`) in. Werpt nooit."""
 
 
 class Autostart(Protocol):

@@ -12,7 +12,7 @@ from ..testing.fakes import FakePlatform
 from .controller import Controller
 from .i18n import CATALOG, LANGUAGES
 from .menu import build_menu
-from .state import Status
+from .state import Delivery, Status
 from .updates import fetch_latest_release
 
 
@@ -28,11 +28,11 @@ def run(output: str | None = None) -> int:
 
     with FakeServer() as server, tempfile.TemporaryDirectory() as tmp:
         c = Controller(FakePlatform(Path(tmp)))
-        check(c.poll() == [] and c.state.status is Status.NOT_CONFIGURED, "niet aangemeld")
+        check(c.poll() == Delivery() and c.state.status is Status.NOT_CONFIGURED, "niet aangemeld")
         c.configure(server.url, FAKE_KEY)
-        toasts = c.poll()
+        toasts = c.poll().toasts
         check(c.state.status is Status.ATTENTION and len(toasts) == 1, "taken en één melding")
-        check(c.poll() == [], "dezelfde melding niet twee keer")
+        check(c.poll() == Delivery(), "dezelfde melding niet twee keer")
         for lang in LANGUAGES:
             check(len(build_menu(c.state, lang, "auto", False)) > 5, f"menu in {lang}")
         server.body = EMPTY

@@ -23,7 +23,7 @@ from ..core.app_actions import AppActions
 from ..core.controller import Controller
 from ..core.menu import Entry, MenuCache, build_menu, status_line
 from ..core.poller import Poller, UpdatePoller
-from ..core.state import Toast
+from ..core.state import Delivery
 from . import windows_dialogs
 from .keyring_store import KeyringSecretStore
 from .windows_icon import badge_for, render_icon
@@ -69,13 +69,13 @@ class WindowsPlatform:
 class TrayApp:
     def __init__(self, controller: Controller) -> None:
         self.c = controller
-        self._results: queue.Queue[list[Toast]] = queue.Queue()
+        self._results: queue.Queue[Delivery] = queue.Queue()
         self._rebuild_needed = True
         self._menu_cache = MenuCache()
         self._stop = threading.Event()
         self._poller = Poller(controller, self._results.put)
-        # Een gevonden update tekent het menu opnieuw (een lege lijst = geen meldingen, wel herbouwen).
-        self._updates = UpdatePoller(controller, lambda: self._results.put([]))
+        # Een gevonden update tekent het menu opnieuw (een lege `Delivery` = geen meldingen, wel herbouwen).
+        self._updates = UpdatePoller(controller, lambda: self._results.put(Delivery()))
         self.actions = AppActions(controller, _WindowsUi(self))
         self.icon = pystray.Icon("huurklaar", render_icon(None), APP_NAME, menu=pystray.Menu())
 

@@ -8,7 +8,7 @@ import pytest
 from huurklaar_notifier.core.api import ApiClient, ApiError
 from huurklaar_notifier.core.config import ConfigStore
 from huurklaar_notifier.core.controller import Controller
-from huurklaar_notifier.core.state import NotConfigured, State, Status
+from huurklaar_notifier.core.state import Delivery, NotConfigured, State, Status
 from huurklaar_notifier.testing.fake_server import EMPTY, FAKE_KEY, SAMPLE
 from huurklaar_notifier.testing.fakes import FakePlatform
 
@@ -128,7 +128,7 @@ def test_poll_na_trage_fetch_geeft_nog_altijd_de_melding(trage):
     t, uit = _poll_in_thread(trage)
     trage.vrijgeven.set()
     t.join(timeout=5)
-    assert [x.title for x in uit[0]] == ["Indexatie nakijken"]
+    assert [x.title for x in uit[0].toasts] == ["Indexatie nakijken"]
     assert "task-1" in trage.config.seen
 
 
@@ -138,7 +138,7 @@ def test_configure_tijdens_fetch_zet_oude_seen_niet_terug(trage):
     trage.vrijgeven.set()
     t.join(timeout=5)
     assert not t.is_alive()
-    assert uit == [[]]  # resultaat van het oude account is weggegooid
+    assert uit == [Delivery()]  # resultaat van het oude account is weggegooid
     assert trage.config.seen == []
     assert trage.state.status is Status.NOT_CONFIGURED  # ook de status van het oude account niet
 
@@ -166,7 +166,7 @@ def test_fetch_zonder_client_geeft_not_configured(controller):
     assert isinstance(State.fetch(None), NotConfigured)
     state = State()
     state.status = Status.IDLE
-    assert state.apply(NotConfigured(), controller.config, "nl", "12:00") == []
+    assert state.apply(NotConfigured(), controller.config, "nl", "12:00") == Delivery()
     assert state.status is Status.NOT_CONFIGURED and state.snapshot is None
 
 
@@ -178,7 +178,7 @@ def test_fetch_en_apply_geven_hetzelfde_als_poll(controller, server):
     ca, cb = Config(base_url="x"), Config(base_url="x")
     toasts_a = a.poll(client, ca, "nl", "12:00")
     toasts_b = b.apply(b.fetch(client), cb, "nl", "12:00")
-    assert toasts_a == toasts_b and toasts_a
+    assert toasts_a == toasts_b and toasts_a.toasts
     assert (a.status, a.snapshot, a.failures, a.updated_at) == (
         b.status,
         b.snapshot,
@@ -188,7 +188,7 @@ def test_fetch_en_apply_geven_hetzelfde_als_poll(controller, server):
     assert ca.seen == cb.seen != []
     # ook bij een fout
     server.status = 500
-    assert a.poll(client, ca, "nl", "12:01") == b.apply(b.fetch(client), cb, "nl", "12:01") == []
+    assert a.poll(client, ca, "nl", "12:01") == b.apply(b.fetch(client), cb, "nl", "12:01") == Delivery()
     assert (a.status, a.failures) == (b.status, b.failures) == (Status.OFFLINE, 1)
 
 
@@ -215,7 +215,7 @@ def test_nieuwe_melding_schrijft_wel_weg(geteld, server, tmp_path):
     assert geteld.schrijfacties == []
     nieuw = {**SAMPLE["items"][0], "id": "task-3", "title": "Nieuwe melding"}
     server.body = {**SAMPLE, "items": [*SAMPLE["items"], nieuw]}
-    assert [t.title for t in geteld.poll()] == ["Nieuwe melding"]
+    assert [t.title for t in geteld.poll().toasts] == ["Nieuwe melding"]
     assert len(geteld.schrijfacties) == 1
     assert "task-3" in ConfigStore(tmp_path).load().seen
 
