@@ -1,10 +1,19 @@
-# CI op elke push en pull request: lint, tests en self-test op Windows én macOS (zonder installers te bouwen).
-# De volledige build met .exe en setup.exe en de release staan in release.yml.
+# CI op elke pull request en elke push naar main: lint, tests en self-test op Windows én macOS (zonder installers
+# te bouwen). De volledige build met .exe en setup.exe en de release staan in release.yml.
 name: CI
 
+# `push` enkel op main: anders startte elke push naar een PR-branch twee runs (push en pull_request, met elk een
+# andere ref, dus de concurrency annuleerde de dubbele niet), telkens op macOS én Windows.
+# Enkel documentatie gewijzigd? Dan draait CI niet.
 on:
   push:
+    branches: [main]
+    paths-ignore: &docs
+      - "docs/**"
+      - "CLAUDE.md"
+      - "README.md"
   pull_request:
+    paths-ignore: *docs
 
 permissions:
   contents: read
