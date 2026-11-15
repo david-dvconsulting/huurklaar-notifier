@@ -31,7 +31,7 @@ python3 -m venv .venv && .venv/bin/pip install -e ".[mac,dev]"   # Windows: ".[w
 scripts/build-mac.sh        # .app + .dmg in dist/ (ad hoc signed)
 ```
 
-CI (`.github/workflows/ci.yml`) runs lint, tests and the self-test on Windows and macOS for every push and pull request.
+CI (`.github/workflows/ci.yml`) runs lint, tests and the self-test: on Linux for a pull request, and on Windows and macOS after a merge to `main` (or when started by hand under **Actions > CI > Run workflow**). A change that only touches documentation does not start CI.
 
 ## Layout
 
@@ -100,4 +100,4 @@ The release files have fixed names, so `https://github.com/david-dvconsulting/hu
 
 A wrong release is fixed by publishing a new, higher version. Never reuse a version or move a tag: the update check compares version numbers. The app checks for a newer release once a day and shows "Nieuwe versie" in its menu.
 
-More detail (version rules, local builds, the update check): [docs/bouwen-en-releasen.md](docs/bouwen-en-releasen.md) (in Dutch).
+More detail (version rules, local builds, the update check): [docs/building-and-releasing.md](docs/building-and-releasing.md).

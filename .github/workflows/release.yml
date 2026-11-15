@@ -1,4 +1,4 @@
-# Releases van Huurklaar Meldingen (KAN-121). Zie docs/bouwen-en-releasen.md.
+# Releases van Huurklaar Meldingen (KAN-121). Zie docs/building-and-releasing.md.
 #
 # - Een tag `vX.Y.Z` (of `vX.Y.Z-rc.N` voor een voorversie) bouwt en publiceert één GitHub-release.
 # - `workflow_dispatch` is een proefrun: alles wordt gebouwd en getest, niets wordt gepubliceerd; de bestanden
@@ -70,7 +70,7 @@ jobs:
       - name: Installeren
         run: |
           python3 -m venv .venv
-          # Alleen vastgepinde pakketten met hash (requirements/release-mac.txt, zie docs/bouwen-en-releasen.md).
+          # Alleen vastgepinde pakketten met hash (requirements/release-mac.txt, zie docs/building-and-releasing.md).
           # Het project zelf zonder afhankelijkheden en zonder geïsoleerde build (setuptools staat in de lock).
           .venv/bin/pip install --quiet --require-hashes -r requirements/release-mac.txt
           .venv/bin/pip install --quiet --no-deps --no-build-isolation -e .
