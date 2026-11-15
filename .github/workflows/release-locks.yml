@@ -1,7 +1,7 @@
 # Test de vastgepinde release-afhankelijkheden (requirements/release-*.txt) zodra ze of pyproject.toml wijzigen,
 # bv. in een Dependabot-PR. ci.yml gebruikt bewust de ranges uit pyproject.toml en test de locks dus niet.
 # Dezelfde installatie als release.yml (met hashcontrole), op beide platformen, zonder iets te bouwen.
-# Zie docs/bouwen-en-releasen.md.
+# Zie docs/building-and-releasing.md.
 name: Release-locks
 
 on:

@@ -2,7 +2,7 @@
 # Vernieuwt de vastgepinde afhankelijkheden (met hashes) voor de releasebuilds: requirements/release-mac.txt en
 # requirements/release-windows.txt. Gebruik: scripts/lock-release.sh [extra uv-opties, bv. --upgrade-package keyring]
 # Vereist uv (https://docs.astral.sh/uv/). uv lost op voor het doelplatform, dus beide locks kunnen vanaf elk
-# platform gemaakt worden. Zie docs/bouwen-en-releasen.md.
+# platform gemaakt worden. Zie docs/building-and-releasing.md.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
