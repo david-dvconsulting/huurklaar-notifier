@@ -80,6 +80,18 @@ Verification, the same steps as CI. Run them before you say something is done:
 ## Conventions
 
 - **Language**: comments, docstrings, test names, UI texts and commit messages in Dutch. Identifiers in English. The README, `docs/` and this file are in English.
+- **Write all documentation in ASD-STE100** (Simplified Technical English; David, 2026-11-19). This rule applies to the README, all files in `docs/`, and all new text in this file. If you change a part of an existing text, write at least that part in STE. Use these rules:
+  - Use only words from the STE dictionary, with their approved meaning and part of speech. For example, write "start", not "launch" or "initiate", and write "use", not "utilize". Technical names (product names, file names, menu items, code) and technical verbs (for example "install", "compile", "sign", "notarize") are permitted.
+  - Use one word for one meaning, and use one meaning for one word. Do not change between synonyms.
+  - Write one topic in each sentence. A procedural sentence has a maximum of 20 words. A descriptive sentence has a maximum of 25 words. A paragraph has a maximum of 6 sentences.
+  - Write an instruction as a command: "Start the app.", not "You can start the app.". Write one instruction in each sentence, unless you do two actions at the same time. Put a condition first: "If the test fails, read the log."
+  - Use a numbered list for steps in a fixed sequence. Use a list when you give more than three items.
+  - Use the active voice. Use the passive voice only in descriptive text, when the person or thing that does the action is not important.
+  - Use only the simple present, the simple past and the simple future tense. Do not use the "-ing" form of a verb, except in technical names. Do not use phrasal verbs ("set up", "find out") and do not use contractions ("don't").
+  - Do not make noun clusters of more than three words.
+  - Do not remove articles ("the", "a") or verbs to make a sentence shorter.
+  - Start a warning with a clear command. Then give the risk: "Do not move a tag. Users who downloaded the old release then get a different file."
+  - Do not change code, paths, commands, identifiers, UI texts or quotes. The rules apply to the running text.
 - **Style**: ruff with line length 110 and the rules E, F, I, UP, B and SIM. Comments explain the *why*.
 - **UI text**: add every new key in NL, FR and EN in `core/i18n.py`. A test checks that all languages have the same keys. The catalogue has no plural rules: give the singular its own key (`toast.paused_summary_one`, `count.task.one`/`count.task.many`), otherwise it says "1 nieuwe meldingen" (1 new notifications).
 - **Logs**: never a key, title, address or any other data. Only the error type.
