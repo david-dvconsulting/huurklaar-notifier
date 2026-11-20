@@ -144,7 +144,7 @@ def _fit(before: str, title: str, where: str = "", after: str = "") -> str:
 
 
 # Vaste volgorde van de groepen in het menu; onbekende soorten komen samen onder `OTHER_GROUP`.
-GROUP_ORDER = ("invoiceAttention", "complaint", "report", "task", "myReport", "tenantTask")
+GROUP_ORDER = ("invoiceAttention", "complaint", "report", "task", "message", "myReport", "tenantTask")
 OTHER_GROUP = "other"
 
 
